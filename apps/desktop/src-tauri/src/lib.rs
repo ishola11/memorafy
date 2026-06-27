@@ -58,6 +58,9 @@ pub fn run() {
 
     builder
         .setup(|app| {
+            #[cfg(target_os = "macos")]
+            macos_popover::init_menubar_app_policy(app.handle());
+
             let app_data = app.path().app_data_dir().expect("app data dir");
             std::fs::create_dir_all(&app_data).ok();
 
@@ -95,18 +98,16 @@ pub fn run() {
             let quit_i = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&show_i, &quick_i, &settings_i, &quit_i])?;
 
-            let mut tray_builder = TrayIconBuilder::with_id("main")
-                .icon(app.default_window_icon().unwrap().clone())
-                .menu(&menu)
-                .show_menu_on_left_click(false);
-
             #[cfg(target_os = "macos")]
             {
-                tray_builder = tray_builder.icon_as_template(true);
-            }
+                let tray = app
+                    .tray_by_id("main")
+                    .expect("tray id 'main' missing — add trayIcon to tauri.macos.conf.json");
+                tray.set_menu(Some(&menu))?;
+                tray.set_show_menu_on_left_click(false)?;
 
-            let _tray = tray_builder
-                .on_menu_event(|app, event| match event.id.as_ref() {
+                let handle = app.handle().clone();
+                tray.on_menu_event(|app, event| match event.id.as_ref() {
                     "show" => open_memora(app),
                     "quick" => toggle_quick_paste(app, true),
                     "settings" => {
@@ -114,36 +115,50 @@ pub fn run() {
                     }
                     "quit" => app.exit(0),
                     _ => {}
-                })
-                .on_tray_icon_event(|tray, event| {
-                    #[cfg(target_os = "macos")]
+                });
+                tray.on_tray_icon_event(move |_, event| {
                     if let TrayIconEvent::Click {
                         button: MouseButton::Left,
                         button_state: MouseButtonState::Up,
                         ..
                     } = event
                     {
-                        let app = tray.app_handle();
-                        macos_popover::toggle_tray_nspopover(&app);
-                        return;
+                        macos_popover::toggle_tray_nspopover(&handle);
                     }
+                });
 
-                    #[cfg(not(target_os = "macos"))]
-                    if let TrayIconEvent::Click {
-                        button: MouseButton::Left,
-                        button_state: MouseButtonState::Up,
-                        rect,
-                        ..
-                    } = event
-                    {
-                        let app = tray.app_handle();
-                        toggle_tray_window(&app, true, Some(rect));
-                    }
-                })
-                .build(app)?;
+                macos_popover::setup_tray_nspopover(app.handle());
+            }
 
-            #[cfg(target_os = "macos")]
-            macos_popover::setup_tray_nspopover(app.handle());
+            #[cfg(not(target_os = "macos"))]
+            {
+                let _tray = TrayIconBuilder::with_id("main")
+                    .icon(app.default_window_icon().unwrap().clone())
+                    .menu(&menu)
+                    .show_menu_on_left_click(false)
+                    .on_menu_event(|app, event| match event.id.as_ref() {
+                        "show" => open_memora(app),
+                        "quick" => toggle_quick_paste(app, true),
+                        "settings" => {
+                            let _ = commands::open_settings(app.clone());
+                        }
+                        "quit" => app.exit(0),
+                        _ => {}
+                    })
+                    .on_tray_icon_event(|tray, event| {
+                        if let TrayIconEvent::Click {
+                            button: MouseButton::Left,
+                            button_state: MouseButtonState::Up,
+                            rect,
+                            ..
+                        } = event
+                        {
+                            let app = tray.app_handle();
+                            toggle_tray_window(&app, true, Some(rect));
+                        }
+                    })
+                    .build(app)?;
+            }
 
             // Global shortcut: Ctrl+Shift+V (Windows) / Cmd+Shift+V (macOS)
             #[cfg(target_os = "macos")]
@@ -200,7 +215,7 @@ pub fn run() {
         .run(|app, event| {
             if matches!(event, RunEvent::Ready) {
                 #[cfg(target_os = "macos")]
-                macos_popover::init_menubar_app_policy(app);
+                macos_popover::retry_setup_tray_nspopover(app);
             }
             if let RunEvent::ExitRequested { api, .. } = &event {
                 api.prevent_exit();

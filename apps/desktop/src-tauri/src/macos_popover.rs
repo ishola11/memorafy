@@ -2,18 +2,23 @@
 
 //! macOS menubar popover configuration for tray + quick-paste overlays.
 //!
-//! Tried in Phase 3.1: `alwaysOnTop` + `visibleOnAllWorkspaces` + `NSMainMenuWindowLevel+1`
-//! — insufficient; panel still landed on primary Space / behind fullscreen apps.
+//! ## Root cause (fullscreen Spaces)
+//! Full-screen apps each occupy their own Space. A normal `NSWindow` tied to the desktop
+//! Space will not appear over another app's full-screen window. Overlay requires:
+//! - `ActivationPolicy::Accessory` / `LSUIElement` (not Regular/Dock app)
+//! - `NSWindowCollectionBehaviorFullScreenAuxiliary` + `CanJoinAllSpaces` / `MoveToActiveSpace`
+//! - High window level (`NSPopUpMenuWindowLevel`)
+//! - `canAppearWhileOtherAppIsFullScreen = YES` when supported
+//! - **No** `NSWindowCollectionBehaviorStationary` — that pins the window to the Space
+//!   where it was first shown (desktop/home).
+//! - **No** `makeKeyAndOrderFront` / `set_focus` on show — that can switch Spaces.
 //!
-//! Native menubar apps (Paste, Raycast, Parallel) use NSStatusItem + a non-activating
-//! panel at `NSPopUpMenuWindowLevel` with `CanJoinAllSpaces | Stationary |
-//! FullScreenAuxiliary`. Regular `NSWindow` cannot render over fullscreen Spaces unless
-//! the app uses `ActivationPolicy::Accessory` (LSUIElement) and the above flags are OR'd
-//! into the existing `collectionBehavior` (not overwritten). See tauri#11488, tauri-nspanel.
+//! ## Option chosen: A (Tauri webview window + AppKit flags)
+//! Keeps existing React UI. Option B (`NSStatusItem` + `NSPopover`) is more native but
+//! requires hosting web content in an embedded view or rewriting the panel — larger effort
+//! for marginal gain if the collection/level flags are applied correctly.
 //!
-//! Tauri webview windows are `NSWindow`, not `NSPanel` — do not call NSPanel-only selectors
-//! (`setFloatingPanel:`, `setWorksWhenModal:`, `setHidesOnDeactivate:`) or AppKit raises
-//! an exception that aborts the process (non-unwinding panic).
+//! NSPanel-only selectors are guarded with `respondsToSelector:` + `catch_unwind`.
 
 #[cfg(target_os = "macos")]
 use std::panic::{catch_unwind, AssertUnwindSafe};
@@ -28,10 +33,9 @@ static ACTIVATION_POLICY_FAILED: AtomicBool = AtomicBool::new(false);
 #[cfg(target_os = "macos")]
 static POPOVER_CFG_FAILED: AtomicBool = AtomicBool::new(false);
 
-/// Menubar apps should not appear in the Dock; required for `CanJoinAllSpaces` over fullscreen.
-/// Call after the event loop is running (e.g. `RunEvent::Ready`), not during `setup`.
+/// Menubar apps must be Accessory so they can overlay another app's full-screen Space.
 #[cfg(target_os = "macos")]
-pub fn init_menubar_app_policy(app: &AppHandle) {
+pub fn ensure_accessory_policy(app: &AppHandle) {
     let result = catch_unwind(AssertUnwindSafe(|| {
         app.set_activation_policy(ActivationPolicy::Accessory)
     }));
@@ -44,12 +48,24 @@ pub fn init_menubar_app_policy(app: &AppHandle) {
     }
 }
 
-/// Switch to Regular when opening a normal settings window (shows Dock icon while settings open).
+/// Call once after the event loop starts.
+#[cfg(target_os = "macos")]
+pub fn init_menubar_app_policy(app: &AppHandle) {
+    ensure_accessory_policy(app);
+}
+
+/// Switch to Regular when opening Settings (Dock icon while settings is open).
 #[cfg(target_os = "macos")]
 pub fn activate_settings_policy(app: &AppHandle) {
     let _ = catch_unwind(AssertUnwindSafe(|| {
         app.set_activation_policy(ActivationPolicy::Regular)
     }));
+}
+
+/// Restore Accessory after Settings closes — Regular policy breaks full-screen overlay.
+#[cfg(target_os = "macos")]
+pub fn restore_menubar_app_policy(app: &AppHandle) {
+    ensure_accessory_policy(app);
 }
 
 #[cfg(target_os = "macos")]
@@ -64,30 +80,60 @@ fn ns_window_handle(window: &WebviewWindow) -> Option<cocoa::base::id> {
     Some(ns_win)
 }
 
-/// NSWindow-safe popover flags (no NSPanel-only selectors).
+#[cfg(target_os = "macos")]
+unsafe fn send_bool_if_responds(ns_win: cocoa::base::id, selector: objc::runtime::Sel, value: bool) {
+    use cocoa::base::{NO, YES};
+    use objc::{msg_send, sel, sel_impl};
+
+    if msg_send![ns_win, respondsToSelector: selector] {
+        let flag = if value { YES } else { NO };
+        let _: () = msg_send![ns_win, selector, flag];
+    }
+}
+
+/// AppKit overlay flags for full-screen Space compatibility.
 #[cfg(target_os = "macos")]
 unsafe fn apply_popover_ns_config(ns_win: cocoa::base::id) {
     use cocoa::appkit::NSWindowCollectionBehavior;
     use objc::{msg_send, sel, sel_impl};
 
-    // NSPopUpMenuWindowLevel — same tier as native menu-bar extras / popovers.
+    // NSPopUpMenuWindowLevel — menubar popover tier (above full-screen content).
     const POPUP_MENU_WINDOW_LEVEL: i64 = 101;
-    // NSWindowStyleMaskNonactivatingPanel — panel receives clicks without activating the app.
     const NONACTIVATING_PANEL: usize = 1 << 7;
 
     let existing: NSWindowCollectionBehavior = msg_send![ns_win, collectionBehavior];
+    // MoveToActiveSpace: follow the Space the user is in (not pinned to desktop).
+    // FullScreenAuxiliary: allowed in another app's full-screen Space.
+    // CanJoinAllSpaces: visible on every Space.
+    // Do NOT set Stationary — pins window to the Space where it was first created.
     let behavior = existing
         | NSWindowCollectionBehavior::NSWindowCollectionBehaviorCanJoinAllSpaces
-        | NSWindowCollectionBehavior::NSWindowCollectionBehaviorStationary
+        | NSWindowCollectionBehavior::NSWindowCollectionBehaviorMoveToActiveSpace
         | NSWindowCollectionBehavior::NSWindowCollectionBehaviorFullScreenAuxiliary
         | NSWindowCollectionBehavior::NSWindowCollectionBehaviorIgnoresCycle;
     let _: () = msg_send![ns_win, setCollectionBehavior: behavior];
 
     let _: () = msg_send![ns_win, setLevel: POPUP_MENU_WINDOW_LEVEL];
 
-    let style_mask: usize = msg_send![ns_win, styleMask];
-    if style_mask & NONACTIVATING_PANEL == 0 {
-        let _: () = msg_send![ns_win, setStyleMask: style_mask | NONACTIVATING_PANEL];
+    // macOS 10.11+ — explicit permission to appear over other apps' full-screen windows.
+    send_bool_if_responds(
+        ns_win,
+        sel!(setCanAppearWhileOtherAppIsFullScreen:),
+        true,
+    );
+
+    // NSPanel-only — safe no-op on NSWindow when selector is absent.
+    send_bool_if_responds(ns_win, sel!(setFloatingPanel:), true);
+    send_bool_if_responds(ns_win, sel!(setHidesOnDeactivate:), false);
+
+    let style_result = catch_unwind(AssertUnwindSafe(|| {
+        let style_mask: usize = msg_send![ns_win, styleMask];
+        if style_mask & NONACTIVATING_PANEL == 0 {
+            let _: () = msg_send![ns_win, setStyleMask: style_mask | NONACTIVATING_PANEL];
+        }
+    }));
+    if style_result.is_err() {
+        tracing::debug!("popover: non-activating styleMask not supported on this window class");
     }
 }
 
@@ -114,16 +160,16 @@ pub fn configure_popover_window(window: &WebviewWindow) {
     }
 }
 
-/// Show overlay above fullscreen Spaces without moving it to the primary desktop.
+/// Show overlay on the active Space without switching away from a full-screen app.
 #[cfg(target_os = "macos")]
-pub fn show_popover_window(window: &WebviewWindow) {
+pub fn show_popover_window(app: &AppHandle, window: &WebviewWindow) {
     use objc::{msg_send, sel, sel_impl};
 
+    ensure_accessory_policy(app);
     configure_popover_window(window);
 
     let Some(ns_win) = ns_window_handle(window) else {
         let _ = window.show();
-        let _ = window.set_focus();
         return;
     };
 
@@ -134,8 +180,11 @@ pub fn show_popover_window(window: &WebviewWindow) {
     if ordered.is_err() {
         let _ = window.show();
     }
-    let _ = window.set_focus();
+    // Do NOT call set_focus / makeKeyAndOrderFront — activates app and can switch Spaces.
 }
+
+#[cfg(not(target_os = "macos"))]
+pub fn ensure_accessory_policy(_app: &tauri::AppHandle) {}
 
 #[cfg(not(target_os = "macos"))]
 pub fn init_menubar_app_policy(_app: &tauri::AppHandle) {}
@@ -144,12 +193,16 @@ pub fn init_menubar_app_policy(_app: &tauri::AppHandle) {}
 pub fn activate_settings_policy(_app: &tauri::AppHandle) {}
 
 #[cfg(not(target_os = "macos"))]
+pub fn restore_menubar_app_policy(_app: &tauri::AppHandle) {}
+
+#[cfg(not(target_os = "macos"))]
 pub fn configure_popover_window(window: &tauri::WebviewWindow) {
     let _ = window.set_always_on_top(true);
 }
 
 #[cfg(not(target_os = "macos"))]
-pub fn show_popover_window(window: &tauri::WebviewWindow) {
+pub fn show_popover_window(app: &tauri::AppHandle, window: &tauri::WebviewWindow) {
+    let _ = app;
     let _ = window.show();
     let _ = window.set_focus();
 }

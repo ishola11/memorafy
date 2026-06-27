@@ -171,8 +171,18 @@ pub fn run() {
                 api.prevent_exit();
             }
             if let RunEvent::WindowEvent { label, event, .. } = event {
+                if let WindowEvent::CloseRequested { .. } = event {
+                    if label == "settings" {
+                        #[cfg(target_os = "macos")]
+                        macos_popover::restore_menubar_app_policy(app);
+                    }
+                }
                 if let WindowEvent::Focused(focused) = event {
                     if !focused {
+                        if label == "settings" {
+                            #[cfg(target_os = "macos")]
+                            macos_popover::restore_menubar_app_policy(app);
+                        }
                         if label == "quick-paste" {
                             let _ = app.emit("quick-paste-visibility", false);
                             if let Some(w) = app.get_webview_window("quick-paste") {
@@ -195,7 +205,7 @@ fn toggle_quick_paste(app: &tauri::AppHandle, show: bool) {
     if let Some(window) = app.get_webview_window("quick-paste") {
         if show {
             position_quick_paste(&window);
-            macos_popover::show_popover_window(&window);
+            macos_popover::show_popover_window(app, &window);
             let _ = app.emit("quick-paste-visibility", true);
         } else {
             let _ = window.hide();
@@ -222,7 +232,7 @@ fn toggle_tray_window(
             } else {
                 position_tray_panel_fallback(&window);
             }
-            macos_popover::show_popover_window(&window);
+            macos_popover::show_popover_window(app, &window);
             let _ = app.emit("tray-visibility", true);
         } else {
             let _ = window.hide();

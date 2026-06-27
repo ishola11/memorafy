@@ -53,6 +53,14 @@
 - [x] **Action toasts** — `ActionToast` bottom-left, 2s auto-dismiss; wired for copy/pin/favorite/collection/delete in Tray + Quick Paste
 - [x] **PreviewCard UX** — loading spinners per action, collection checkmark flash, menu closes after toggle
 
+## Phase 3.3: Full-screen Space overlay (2026-06-27)
+
+- [x] **Option A** — Tauri webview + AppKit flags (not native NSPopover rewrite)
+- [x] Remove `Stationary`; add `MoveToActiveSpace` + `canAppearWhileOtherAppIsFullScreen`
+- [x] `ensure_accessory_policy` before every popover show; restore after Settings closes
+- [x] No `set_focus` on popover show; `orderFrontRegardless` only
+- [x] NSPanel selectors guarded with `respondsToSelector:`
+
 ## Next Up
 
 1. Run `003_collections_realtime.sql` in Supabase if project predates this update

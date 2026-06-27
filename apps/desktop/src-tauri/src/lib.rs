@@ -10,7 +10,7 @@ pub mod timeline;
 
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use parking_lot::Mutex;
 use tauri::{
@@ -19,6 +19,10 @@ use tauri::{
     Emitter, Manager, Monitor, PhysicalPosition, Position, RunEvent, Size, WebviewWindow, WindowEvent,
 };
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
+
+/// Grace period after opening tray popover — ignore blur so the menubar click doesn't instantly hide it.
+static TRAY_OPENED_AT: Mutex<Option<Instant>> = Mutex::new(None);
+const TRAY_BLUR_GRACE: Duration = Duration::from_millis(450);
 
 pub struct AppState {
     pub db: Arc<db::Database>,
@@ -190,6 +194,13 @@ pub fn run() {
                             }
                         }
                         if label == "tray" {
+                            let skip_blur = TRAY_OPENED_AT
+                                .lock()
+                                .as_ref()
+                                .is_some_and(|t| t.elapsed() < TRAY_BLUR_GRACE);
+                            if skip_blur {
+                                return;
+                            }
                             let _ = app.emit("tray-visibility", false);
                             if let Some(w) = app.get_webview_window("tray") {
                                 let _ = w.hide();
@@ -233,6 +244,7 @@ fn toggle_tray_window(
                 position_tray_panel_fallback(&window);
             }
             macos_popover::show_popover_window(app, &window);
+            *TRAY_OPENED_AT.lock() = Some(Instant::now());
             let _ = app.emit("tray-visibility", true);
         } else {
             let _ = window.hide();

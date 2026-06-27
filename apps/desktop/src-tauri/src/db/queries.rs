@@ -64,6 +64,12 @@ impl Database {
                 &super::models::DEFAULT_HISTORY_RETENTION_DAYS.to_string(),
             )?;
         }
+        if self.get_setting(super::models::SETTING_THEME_PREFERENCE)?.is_none() {
+            self.set_setting(
+                super::models::SETTING_THEME_PREFERENCE,
+                super::models::DEFAULT_THEME_PREFERENCE,
+            )?;
+        }
         Ok(())
     }
 
@@ -508,7 +514,23 @@ impl Database {
         Ok(super::models::AppSettingsDto {
             history_retention_days: self.get_history_retention_days()?,
             clipboard_paused: self.get_clipboard_paused()?,
+            theme_preference: self.get_theme_preference()?,
         })
+    }
+
+    pub fn get_theme_preference(&self) -> Result<String, rusqlite::Error> {
+        Ok(self
+            .get_setting(super::models::SETTING_THEME_PREFERENCE)?
+            .unwrap_or_else(|| super::models::DEFAULT_THEME_PREFERENCE.to_string()))
+    }
+
+    pub fn set_theme_preference(&self, preference: &str) -> Result<(), rusqlite::Error> {
+        if !["system", "light", "dark"].contains(&preference) {
+            return Err(rusqlite::Error::InvalidParameterName(
+                "theme_preference".into(),
+            ));
+        }
+        self.set_setting(super::models::SETTING_THEME_PREFERENCE, preference)
     }
 
     pub fn get_clipboard_paused(&self) -> Result<bool, rusqlite::Error> {
@@ -590,6 +612,85 @@ impl Database {
             })
         })?;
         rows.collect()
+    }
+
+    pub fn create_collection(&self, name: &str, color: &str) -> Result<CollectionDto, rusqlite::Error> {
+        let trimmed = name.trim();
+        if trimmed.is_empty() {
+            return Err(rusqlite::Error::InvalidParameterName("name".into()));
+        }
+        let id = Uuid::new_v4().to_string();
+        let now = Utc::now().to_rfc3339();
+        let conn = self.conn.lock().unwrap();
+        let max_order: i64 = conn
+            .query_row(
+                "SELECT COALESCE(MAX(sort_order), -1) FROM collections",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap_or(-1);
+        conn.execute(
+            "INSERT INTO collections (id, name, color, sort_order, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![id, trimmed, color, max_order + 1, now],
+        )?;
+        drop(conn);
+        self.get_collection(&id)
+    }
+
+    pub fn get_collection(&self, id: &str) -> Result<CollectionDto, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT c.id, c.name, c.color, c.icon,
+                    (SELECT COUNT(*) FROM item_collections ic WHERE ic.collection_id = c.id) as cnt
+             FROM collections c WHERE c.id = ?1",
+            params![id],
+            |row| {
+                Ok(CollectionDto {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    color: row.get(2)?,
+                    icon: row.get(3)?,
+                    item_count: row.get(4)?,
+                })
+            },
+        )
+    }
+
+    pub fn update_collection(
+        &self,
+        id: &str,
+        name: Option<&str>,
+        color: Option<&str>,
+    ) -> Result<CollectionDto, rusqlite::Error> {
+        if let Some(n) = name {
+            if n.trim().is_empty() {
+                return Err(rusqlite::Error::InvalidParameterName("name".into()));
+            }
+            self.conn.lock().unwrap().execute(
+                "UPDATE collections SET name = ?1 WHERE id = ?2",
+                params![n.trim(), id],
+            )?;
+        }
+        if let Some(c) = color {
+            self.conn.lock().unwrap().execute(
+                "UPDATE collections SET color = ?1 WHERE id = ?2",
+                params![c, id],
+            )?;
+        }
+        self.get_collection(id)
+    }
+
+    pub fn delete_collection(&self, id: &str) -> Result<(), rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "DELETE FROM item_collections WHERE collection_id = ?1",
+            params![id],
+        )?;
+        let changed = conn.execute("DELETE FROM collections WHERE id = ?1", params![id])?;
+        if changed == 0 {
+            return Err(rusqlite::Error::QueryReturnedNoRows);
+        }
+        Ok(())
     }
 
     pub fn get_devices(&self) -> Result<Vec<DeviceDto>, rusqlite::Error> {

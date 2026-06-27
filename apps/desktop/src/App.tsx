@@ -1,9 +1,16 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { QuickPasteLauncher } from "@/components/quick-paste/QuickPasteLauncher";
 import { SettingsPanel } from "@/components/settings/SettingsPanel";
 import { TrayPanel, TrayShell } from "@/components/tray/TrayPanel";
 import { SyncToast } from "@/components/ui/SyncToast";
-import { onItemsUpdated, onQuickPasteVisibility, onTrayVisibility } from "@/lib/api";
+import {
+  onItemsUpdated,
+  onQuickPasteVisibility,
+  onThemeChanged,
+  onTrayVisibility,
+} from "@/lib/api";
+import { applyTheme, initTheme, watchSystemTheme } from "@/lib/theme";
+import type { ThemePreference } from "@memora/shared-types";
 import { useAppStore } from "@/stores/app-store";
 
 function getWindowMode(): "quick-paste" | "tray" | "settings" | "main" {
@@ -18,9 +25,12 @@ function getWindowMode(): "quick-paste" | "tray" | "settings" | "main" {
 export default function App() {
   const windowMode = getWindowMode();
   const { setQuickPasteOpen, setTrayOpen, refresh } = useAppStore();
+  const themePrefRef = useRef<ThemePreference>("system");
 
   useEffect(() => {
-    document.documentElement.classList.add("dark");
+    void initTheme().then((pref) => {
+      themePrefRef.current = pref;
+    });
 
     if (windowMode === "quick-paste") {
       setQuickPasteOpen(true);
@@ -30,6 +40,19 @@ export default function App() {
     }
 
     const unsubs: Array<() => void> = [];
+
+    unsubs.push(
+      watchSystemTheme(() => {
+        if (themePrefRef.current === "system") {
+          applyTheme("system");
+        }
+      }),
+    );
+
+    void onThemeChanged((preference) => {
+      themePrefRef.current = preference;
+      applyTheme(preference);
+    }).then((unlisten) => unsubs.push(unlisten));
 
     void onQuickPasteVisibility((visible) => {
       setQuickPasteOpen(visible);
@@ -46,7 +69,7 @@ export default function App() {
     return () => {
       unsubs.forEach((fn) => fn());
     };
-  }, [setQuickPasteOpen, setTrayOpen, refresh]);
+  }, [setQuickPasteOpen, setTrayOpen, refresh, windowMode]);
 
   if (windowMode === "settings") {
     return (

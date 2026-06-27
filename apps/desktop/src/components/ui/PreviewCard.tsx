@@ -68,7 +68,7 @@ export function PreviewCard({
 
       <div className="min-w-0 flex-1">
         <div className="flex items-start gap-2">
-          <p className="truncate text-sm font-medium text-zinc-100">
+          <p className="truncate text-sm font-medium text-zinc-900 dark:text-zinc-100">
             {card.title}
           </p>
           <div className="ml-auto flex shrink-0 items-center gap-1 opacity-70">
@@ -88,7 +88,7 @@ export function PreviewCard({
         {card.subtitle && (
           <p className="truncate text-xs text-muted">{card.subtitle}</p>
         )}
-        <p className="mt-0.5 truncate text-[11px] text-zinc-500">{card.meta}</p>
+        <p className="mt-0.5 truncate text-[11px] text-muted">{card.meta}</p>
       </div>
 
       <div className="absolute right-2 top-1/2 hidden -translate-y-1/2 items-center gap-1 group-hover:flex">
@@ -98,7 +98,7 @@ export function PreviewCard({
             e.stopPropagation();
             onCopy?.();
           }}
-          className="rounded-md bg-zinc-800 px-2 py-1 text-[11px] text-zinc-200 hover:bg-zinc-700"
+          className="rounded-md bg-surface-elevated px-2 py-1 text-[11px] text-zinc-700 hover:bg-border/40 dark:text-zinc-200 dark:hover:bg-zinc-800"
         >
           Copy
         </button>
@@ -108,7 +108,7 @@ export function PreviewCard({
             e.stopPropagation();
             onPin?.();
           }}
-          className="rounded-md p-1 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
+          className="rounded-md p-1 text-muted hover:bg-surface-elevated hover:text-zinc-700 dark:hover:text-zinc-200"
         >
           <Pin className="h-3.5 w-3.5" />
         </button>
@@ -118,7 +118,7 @@ export function PreviewCard({
             e.stopPropagation();
             onFavorite?.();
           }}
-          className="rounded-md p-1 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
+          className="rounded-md p-1 text-muted hover:bg-surface-elevated hover:text-zinc-700 dark:hover:text-zinc-200"
         >
           <Star className="h-3.5 w-3.5" />
         </button>

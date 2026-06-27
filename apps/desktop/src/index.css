@@ -4,10 +4,11 @@
 
 :root {
   --surface: 255 255 255;
-  --surface-elevated: 250 250 250;
-  --border: 228 228 231;
-  --muted: 113 113 122;
+  --surface-elevated: 248 250 252;
+  --border: 226 232 240;
+  --muted: 100 116 139;
   --accent: 99 102 241;
+  --panel-shadow: 0 16px 48px -12px rgb(15 23 42 / 0.18);
 }
 
 .dark {
@@ -16,6 +17,7 @@
   --border: 39 39 42;
   --muted: 161 161 170;
   --accent: 129 140 248;
+  --panel-shadow: 0 16px 48px -12px rgb(0 0 0 / 0.55);
 }
 
 html,
@@ -29,6 +31,13 @@ body,
 body {
   font-family: Inter, "Segoe UI", system-ui, -apple-system, sans-serif;
   background: transparent;
+  color: rgb(24 24 27);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.dark body {
+  color: rgb(244 244 245);
 }
 
 * {
@@ -37,9 +46,36 @@ body {
 
 ::-webkit-scrollbar {
   width: 6px;
+  height: 6px;
 }
 
 ::-webkit-scrollbar-thumb {
   background: rgb(var(--border));
   border-radius: 999px;
+}
+
+@layer components {
+  .panel-shell {
+    @apply flex h-screen w-full flex-col overflow-hidden bg-surface text-zinc-900 dark:text-zinc-100;
+  }
+
+  .panel-header {
+    @apply shrink-0 border-b border-border/60 bg-surface/95 backdrop-blur-md;
+  }
+
+  .panel-content {
+    @apply min-h-0 flex-1 overflow-y-auto overscroll-contain;
+  }
+
+  .panel-footer {
+    @apply shrink-0 border-t border-border/60 bg-surface/95 px-4 py-2 backdrop-blur-md;
+  }
+
+  .search-input {
+    @apply flex items-center gap-2 rounded-lg border border-border/60 bg-surface-elevated/80 px-3 py-2 transition-colors focus-within:border-accent/40 focus-within:ring-1 focus-within:ring-accent/20;
+  }
+
+  .search-input input {
+    @apply flex-1 bg-transparent text-sm outline-none placeholder:text-muted;
+  }
 }

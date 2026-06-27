@@ -21,7 +21,7 @@
 - [ ] **Step 15** — Snippets library UI + CRUD
 - [ ] **Step 18** — Signed installers + auto-update
 
-## Phase 2.5: Sync & UX Polish
+## Phase 2.5: Sync & UX Polish ✅
 
 - [x] **A** — Fix sync echo loop (programmatic hash + content_hash dedupe in watcher)
 - [x] **B** — Tab navigation in Tray + Quick Paste (History | Pinned | Favorites | Collections | Snippets)
@@ -30,12 +30,21 @@
 - [x] **E** — Snippets tab groundwork (filter `kind='snippet'`)
 - [x] Scrollable settings panel fix
 
+## Phase 3: UI/UX Overhaul ✅
+
+- [x] **Collections CRUD** — `create_collection`, `update_collection`, `delete_collection` IPC + Settings UI (name, color presets, rename/delete)
+- [x] **Professional UI** — Underline TabBar, sticky header + scrollable content, design tokens (`surface`, `border`, `accent`), TrayPanel + QuickPasteLauncher polish
+- [x] **Tray popover behavior** — Position panel at tray click coords (`skipTaskbar`, `decorations: false`, `alwaysOnTop`); macOS below menubar, Windows above taskbar
+- [x] **Theme system** — System / Light / Dark persisted in SQLite (`theme_preference`), class-based Tailwind dark mode, `theme-changed` event
+- [x] **Settings sidebar** — Account & Sync, Devices, History, Collections, Appearance sections
+
 ## Next Up
 
 1. Create Supabase project + run migrations
 2. Copy `.env.example` → `apps/desktop/.env`
 3. Sign in via Settings on both devices
 4. Test Mac ↔ Windows sync
+5. Wire `item_collections` assign UI (add clips to collections from tray)
 
 ## Supabase Setup
 

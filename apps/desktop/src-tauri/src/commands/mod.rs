@@ -91,6 +91,58 @@ pub fn get_collections(state: State<'_, AppState>) -> Result<Vec<crate::db::Coll
 }
 
 #[tauri::command]
+pub fn create_collection(
+    state: State<'_, AppState>,
+    input: crate::db::CreateCollectionDto,
+) -> Result<crate::db::CollectionDto, String> {
+    state
+        .db
+        .create_collection(&input.name, &input.color)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn update_collection(
+    state: State<'_, AppState>,
+    input: crate::db::UpdateCollectionDto,
+) -> Result<crate::db::CollectionDto, String> {
+    state
+        .db
+        .update_collection(
+            &input.id,
+            input.name.as_deref(),
+            input.color.as_deref(),
+        )
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn delete_collection(state: State<'_, AppState>, id: String) -> Result<(), String> {
+    state.db.delete_collection(&id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_theme_preference(state: State<'_, AppState>) -> Result<String, String> {
+    state.db.get_theme_preference().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn set_theme_preference(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    preference: String,
+) -> Result<String, String> {
+    state
+        .db
+        .set_theme_preference(&preference)
+        .map_err(|e| e.to_string())?;
+    let pref = state.db.get_theme_preference().map_err(|e| e.to_string())?;
+    app.emit("theme-changed", &pref)
+        .map_err(|e| e.to_string())?;
+    Ok(pref)
+}
+
+#[tauri::command]
 pub fn get_devices(state: State<'_, AppState>) -> Result<Vec<crate::db::DeviceDto>, String> {
     state.db.get_devices().map_err(|e| e.to_string())
 }

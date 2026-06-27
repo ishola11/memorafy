@@ -79,13 +79,31 @@ pub struct CollectionDto {
 
 pub const SETTING_HISTORY_RETENTION: &str = "history_retention_days";
 pub const SETTING_CLIPBOARD_PAUSED: &str = "clipboard_paused";
+pub const SETTING_THEME_PREFERENCE: &str = "theme_preference";
 pub const DEFAULT_HISTORY_RETENTION_DAYS: i64 = 30;
+pub const DEFAULT_THEME_PREFERENCE: &str = "system";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppSettingsDto {
     pub history_retention_days: i64,
     pub clipboard_paused: bool,
+    pub theme_preference: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateCollectionDto {
+    pub name: String,
+    pub color: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateCollectionDto {
+    pub id: String,
+    pub name: Option<String>,
+    pub color: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

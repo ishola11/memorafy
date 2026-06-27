@@ -12,7 +12,7 @@ use parking_lot::Mutex;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Emitter, Manager, RunEvent, WindowEvent,
+    Emitter, Manager, PhysicalPosition, RunEvent, WindowEvent,
 };
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
@@ -82,7 +82,7 @@ pub fn run() {
                 .menu(&menu)
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, event| match event.id.as_ref() {
-                    "show" => toggle_tray_window(app, true),
+                    "show" => toggle_tray_window(app, true, None),
                     "quick" => toggle_quick_paste(app, true),
                     "settings" => {
                         let _ = commands::open_settings(app.clone());
@@ -94,11 +94,12 @@ pub fn run() {
                     if let TrayIconEvent::Click {
                         button: MouseButton::Left,
                         button_state: MouseButtonState::Up,
+                        rect,
                         ..
                     } = event
                     {
                         let app = tray.app_handle();
-                        toggle_tray_window(&app, true);
+                        toggle_tray_window(&app, true, Some(rect));
                     }
                 })
                 .build(app)?;
@@ -132,6 +133,9 @@ pub fn run() {
             commands::delete_item,
             commands::rename_item,
             commands::get_collections,
+            commands::create_collection,
+            commands::update_collection,
+            commands::delete_collection,
             commands::get_devices,
             commands::show_quick_paste,
             commands::hide_quick_paste,
@@ -143,6 +147,8 @@ pub fn run() {
             commands::set_history_retention,
             commands::get_clipboard_paused,
             commands::toggle_clipboard_pause,
+            commands::get_theme_preference,
+            commands::set_theme_preference,
             commands::open_settings,
         ])
         .build(tauri::generate_context!())
@@ -186,9 +192,24 @@ fn toggle_quick_paste(app: &tauri::AppHandle, show: bool) {
     }
 }
 
-fn toggle_tray_window(app: &tauri::AppHandle, show: bool) {
+fn toggle_tray_window(
+    app: &tauri::AppHandle,
+    show: bool,
+    tray_rect: Option<tauri::Rect>,
+) {
     if let Some(window) = app.get_webview_window("tray") {
+        let is_visible = window.is_visible().unwrap_or(false);
+        if show && is_visible {
+            let _ = window.hide();
+            let _ = app.emit("tray-visibility", false);
+            return;
+        }
         if show {
+            if let Some(rect) = tray_rect {
+                position_tray_panel(&window, rect);
+            } else {
+                position_tray_panel_fallback(&window);
+            }
             let _ = window.show();
             let _ = window.set_focus();
             let _ = app.emit("tray-visibility", true);
@@ -197,4 +218,93 @@ fn toggle_tray_window(app: &tauri::AppHandle, show: bool) {
             let _ = app.emit("tray-visibility", false);
         }
     }
+}
+
+/// Anchor the tray panel to the system tray / menubar area (popover style).
+fn position_tray_panel(window: &tauri::WebviewWindow, tray_rect: tauri::Rect) {
+    let size = window
+        .outer_size()
+        .unwrap_or(tauri::PhysicalSize::new(400, 580));
+    let monitor = window
+        .current_monitor()
+        .ok()
+        .flatten()
+        .or_else(|| window.primary_monitor().ok().flatten());
+
+    let Some(monitor) = monitor else {
+        return;
+    };
+
+    let mon_pos = monitor.position();
+    let mon_size = monitor.size();
+    let gap = 6i32;
+
+    let (tray_x, tray_y, tray_w, tray_h) = rect_physical_bounds(&tray_rect);
+
+    #[cfg(target_os = "macos")]
+    let pos = {
+        let tray_center_x = tray_x + tray_w / 2;
+        let mut x = tray_center_x - (size.width as i32 / 2);
+        let y = tray_y + tray_h + gap;
+        let min_x = mon_pos.x + 8;
+        let max_x = mon_pos.x + mon_size.width as i32 - size.width as i32 - 8;
+        x = x.clamp(min_x, max_x);
+        PhysicalPosition::new(x, y)
+    };
+
+    #[cfg(not(target_os = "macos"))]
+    let pos = {
+        let tray_center_x = tray_x + tray_w / 2;
+        let mut x = tray_center_x - (size.width as i32 / 2);
+        let y = mon_pos.y + mon_size.height as i32 - size.height as i32 - 48;
+        let min_x = mon_pos.x + 8;
+        let max_x = mon_pos.x + mon_size.width as i32 - size.width as i32 - 8;
+        x = x.clamp(min_x, max_x);
+        PhysicalPosition::new(x, y)
+    };
+
+    let _ = window.set_position(pos);
+}
+
+fn rect_physical_bounds(rect: &tauri::Rect) -> (i32, i32, i32, i32) {
+    let (x, y) = match rect.position {
+        tauri::Position::Physical(p) => (p.x, p.y),
+        tauri::Position::Logical(p) => (p.x as i32, p.y as i32),
+    };
+    let (w, h) = match rect.size {
+        tauri::Size::Physical(s) => (s.width as i32, s.height as i32),
+        tauri::Size::Logical(s) => (s.width as i32, s.height as i32),
+    };
+    (x, y, w, h)
+}
+
+fn position_tray_panel_fallback(window: &tauri::WebviewWindow) {
+    let size = window
+        .outer_size()
+        .unwrap_or(tauri::PhysicalSize::new(400, 580));
+    let monitor = window
+        .primary_monitor()
+        .ok()
+        .flatten();
+
+    let Some(monitor) = monitor else {
+        return;
+    };
+
+    let mon_pos = monitor.position();
+    let mon_size = monitor.size();
+
+    #[cfg(target_os = "macos")]
+    let pos = PhysicalPosition::new(
+        mon_pos.x + mon_size.width as i32 - size.width as i32 - 12,
+        mon_pos.y + 28,
+    );
+
+    #[cfg(not(target_os = "macos"))]
+    let pos = PhysicalPosition::new(
+        mon_pos.x + mon_size.width as i32 - size.width as i32 - 8,
+        mon_pos.y + mon_size.height as i32 - size.height as i32 - 48,
+    );
+
+    let _ = window.set_position(pos);
 }

@@ -75,34 +75,32 @@ export function QuickPasteLauncher() {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 pt-[12vh] backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-start justify-center bg-black/30 pt-[10vh] backdrop-blur-[2px] dark:bg-black/50"
       onMouseDown={() => setQuickPasteOpen(false)}
     >
       <div
-        className="w-[680px] overflow-hidden rounded-2xl border border-white/10 bg-zinc-950/95 shadow-launcher backdrop-blur-xl"
+        className="flex w-[640px] max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-xl border border-border/60 bg-surface shadow-[var(--panel-shadow)]"
+        style={{ maxHeight: "min(520px, 80vh)" }}
         onMouseDown={(e) => e.stopPropagation()}
         onKeyDown={handleKeyDown}
       >
-        <div className="border-b border-white/10 px-4 py-3">
-          <div className="mb-2 flex items-center gap-3">
-            <Search className="h-4 w-4 shrink-0 text-zinc-500" />
+        <header className="panel-header px-4 pb-0 pt-3">
+          <div className="search-input mb-3">
+            <Search className="h-4 w-4 shrink-0 text-muted" />
             <input
               ref={inputRef}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search your memory…  device:mac  type:image  is:pinned"
-              className="flex-1 bg-transparent text-sm text-zinc-100 outline-none placeholder:text-zinc-500"
             />
           </div>
           <TabBar activeTab={activeTab} onTabChange={setActiveTab} compact />
-        </div>
+        </header>
 
-        <div className="max-h-[360px] overflow-y-auto p-2">
+        <div className="panel-content min-h-0 p-2">
           {query.trim() ? (
             flatItems.length === 0 ? (
-              <p className="px-3 py-8 text-center text-sm text-zinc-500">
-                No matches found
-              </p>
+              <p className="px-3 py-12 text-center text-sm text-muted">No matches found</p>
             ) : (
               <div className="space-y-1">
                 {flatItems.map((card, index) => (
@@ -126,15 +124,16 @@ export function QuickPasteLauncher() {
               section.items.length > 0 ? (
                 <div key={section.bucket} className="mb-3">
                   {activeTab === "history" && (
-                    <p className="sticky top-0 z-10 bg-zinc-950/95 px-2 py-1.5 text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+                    <p className="sticky top-0 z-10 bg-surface/95 px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted backdrop-blur-sm">
                       {TIMELINE_LABELS[section.bucket] ?? section.label}
                     </p>
                   )}
                   <div className="space-y-1">
                     {section.items.map((card, index) => {
-                      const globalIndex = timeline
-                        .slice(0, timeline.indexOf(section))
-                        .reduce((acc, s) => acc + s.items.length, 0) + index;
+                      const globalIndex =
+                        timeline
+                          .slice(0, timeline.indexOf(section))
+                          .reduce((acc, s) => acc + s.items.length, 0) + index;
                       return (
                         <PreviewCard
                           key={card.id}
@@ -157,10 +156,10 @@ export function QuickPasteLauncher() {
           )}
         </div>
 
-        <div className="flex items-center justify-between border-t border-white/10 px-4 py-2 text-[11px] text-zinc-500">
+        <footer className="panel-footer flex items-center justify-between text-[11px] text-muted">
           <span>↵ paste · ⇥ switch tab · esc close</span>
           <span>{flatItems.length} items</span>
-        </div>
+        </footer>
       </div>
     </div>
   );

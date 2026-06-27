@@ -112,9 +112,23 @@ export interface SyncTransfer {
   onlineDevices: string[];
 }
 
+export type ThemePreference = 'system' | 'light' | 'dark';
+
 export interface AppSettings {
   historyRetentionDays: number;
   clipboardPaused: boolean;
+  themePreference: ThemePreference;
 }
 
 export type HistoryRetentionOption = 0 | 30 | 60 | 90;
+
+export interface CreateCollectionInput {
+  name: string;
+  color: string;
+}
+
+export interface UpdateCollectionInput {
+  id: string;
+  name?: string;
+  color?: string;
+}

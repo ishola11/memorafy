@@ -3,12 +3,15 @@ import { listen } from "@tauri-apps/api/event";
 import type {
   ClipItem,
   Collection,
+  CreateCollectionInput,
   DeviceInfo,
   PreviewCard,
   SearchFilters,
   SyncState,
+  ThemePreference,
   TimelineSection,
   AppTab,
+  UpdateCollectionInput,
 } from "@memora/shared-types";
 
 export async function searchItems(filters: SearchFilters): Promise<PreviewCard[]> {
@@ -58,6 +61,18 @@ export async function renameItem(id: string, title: string): Promise<void> {
 
 export async function getCollections(): Promise<Collection[]> {
   return invoke<Collection[]>("get_collections");
+}
+
+export async function createCollection(input: CreateCollectionInput): Promise<Collection> {
+  return invoke<Collection>("create_collection", { input });
+}
+
+export async function updateCollection(input: UpdateCollectionInput): Promise<Collection> {
+  return invoke<Collection>("update_collection", { input });
+}
+
+export async function deleteCollection(id: string): Promise<void> {
+  return invoke("delete_collection", { id });
 }
 
 export async function getDevices(): Promise<DeviceInfo[]> {
@@ -116,6 +131,20 @@ export async function setHistoryRetention(
   days: import("@memora/shared-types").HistoryRetentionOption,
 ): Promise<import("@memora/shared-types").AppSettings> {
   return invoke("set_history_retention", { days });
+}
+
+export async function getThemePreference(): Promise<ThemePreference> {
+  return invoke<ThemePreference>("get_theme_preference");
+}
+
+export async function setThemePreference(preference: ThemePreference): Promise<ThemePreference> {
+  return invoke<ThemePreference>("set_theme_preference", { preference });
+}
+
+export function onThemeChanged(callback: (preference: ThemePreference) => void) {
+  return listen<ThemePreference>("theme-changed", (event) => {
+    callback(event.payload);
+  });
 }
 
 export function onSyncTransfer(callback: (transfer: import("@memora/shared-types").SyncTransfer) => void) {

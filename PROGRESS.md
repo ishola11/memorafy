@@ -63,6 +63,14 @@
 - [x] **Stability fix** — removed native `msg_send!` AppKit config (NSExceptions abort process); Tauri-only popover show until native NSPopover phase
 - [x] **macOS tray UX** — native menubar menu on left-click; Quick Paste as primary UI (no custom tray webview panel)
 
+## Phase 3.4: Native NSPopover menubar (2026-06-27)
+
+- [x] **Native NSPopover** — `tauri-plugin-nspopover` v4.1.0; tray webview → full TrayPanel in popover
+- [x] **Mac left-click** — toggle NSPopover (not native menu-only); right-click keeps tray menu
+- [x] **Quick Paste** — separate overlay window (`⌘⇧V`); hides tray popover when opened
+- [x] **Settings** — `ActivationPolicy::Regular` on open, Accessory restore on close; hides tray popover
+- [x] **Windows** — unchanged custom sidebar panel on left-click
+
 ## Next Up
 
 1. Run `003_collections_realtime.sql` in Supabase if project predates this update

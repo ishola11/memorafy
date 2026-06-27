@@ -39,7 +39,7 @@ pub struct AppState {
 pub fn run() {
     tracing_subscriber::fmt::init();
 
-    tauri::Builder::default()
+    let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
@@ -49,7 +49,14 @@ pub fn run() {
                     }
                 })
                 .build(),
-        )
+        );
+
+    #[cfg(target_os = "macos")]
+    {
+        builder = builder.plugin(tauri_plugin_nspopover::init());
+    }
+
+    builder
         .setup(|app| {
             let app_data = app.path().app_data_dir().expect("app data dir");
             std::fs::create_dir_all(&app_data).ok();
@@ -78,7 +85,7 @@ pub fn run() {
                 device_id: device_id.clone(),
             });
 
-            // System tray — macOS uses native menu on left-click (Parallel/Paste style);
+            // System tray — macOS uses native NSPopover on left-click (full TrayPanel);
             // Windows keeps the custom sidebar panel on left-click.
             let show_i = MenuItem::with_id(app, "show", "Open Memora", true, None::<&str>)?;
             let quick_i =
@@ -88,20 +95,14 @@ pub fn run() {
             let quit_i = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&show_i, &quick_i, &settings_i, &quit_i])?;
 
-            let mut tray_builder = TrayIconBuilder::new()
+            let mut tray_builder = TrayIconBuilder::with_id("main")
                 .icon(app.default_window_icon().unwrap().clone())
-                .menu(&menu);
+                .menu(&menu)
+                .show_menu_on_left_click(false);
 
             #[cfg(target_os = "macos")]
             {
-                tray_builder = tray_builder
-                    .icon_as_template(true)
-                    .show_menu_on_left_click(true);
-            }
-
-            #[cfg(not(target_os = "macos"))]
-            {
-                tray_builder = tray_builder.show_menu_on_left_click(false);
+                tray_builder = tray_builder.icon_as_template(true);
             }
 
             let _tray = tray_builder
@@ -115,6 +116,18 @@ pub fn run() {
                     _ => {}
                 })
                 .on_tray_icon_event(|tray, event| {
+                    #[cfg(target_os = "macos")]
+                    if let TrayIconEvent::Click {
+                        button: MouseButton::Left,
+                        button_state: MouseButtonState::Up,
+                        ..
+                    } = event
+                    {
+                        let app = tray.app_handle();
+                        macos_popover::toggle_tray_nspopover(&app);
+                        return;
+                    }
+
                     #[cfg(not(target_os = "macos"))]
                     if let TrayIconEvent::Click {
                         button: MouseButton::Left,
@@ -128,6 +141,9 @@ pub fn run() {
                     }
                 })
                 .build(app)?;
+
+            #[cfg(target_os = "macos")]
+            macos_popover::setup_tray_nspopover(app.handle());
 
             // Global shortcut: Ctrl+Shift+V (Windows) / Cmd+Shift+V (macOS)
             #[cfg(target_os = "macos")]
@@ -209,6 +225,11 @@ pub fn run() {
                             }
                         }
                         if label == "tray" {
+                            #[cfg(target_os = "macos")]
+                            {
+                                // NSPopover dismisses itself; no manual hide on blur.
+                                return;
+                            }
                             let skip_blur = TRAY_OPENED_AT
                                 .lock()
                                 .as_ref()
@@ -227,10 +248,10 @@ pub fn run() {
         });
 }
 
-/// Primary entry from tray menu — Quick Paste on macOS, sidebar panel on Windows.
+/// Primary entry from tray menu — NSPopover history on macOS, sidebar panel on Windows.
 fn open_memora(app: &tauri::AppHandle) {
     #[cfg(target_os = "macos")]
-    toggle_quick_paste(app, true);
+    macos_popover::show_tray_nspopover(app);
 
     #[cfg(not(target_os = "macos"))]
     toggle_tray_window(app, true, None);
@@ -239,8 +260,11 @@ fn open_memora(app: &tauri::AppHandle) {
 fn toggle_quick_paste(app: &tauri::AppHandle, show: bool) {
     if let Some(window) = app.get_webview_window("quick-paste") {
         if show {
+            #[cfg(target_os = "macos")]
+            macos_popover::hide_tray_nspopover(app);
+
             position_quick_paste(&window);
-            macos_popover::show_popover_window(app, &window);
+            macos_popover::show_quick_paste_window(&window);
             let _ = window.set_focus();
             let _ = app.emit("quick-paste-visibility", true);
         } else {
@@ -268,7 +292,7 @@ fn toggle_tray_window(
             } else {
                 position_tray_panel_fallback(&window);
             }
-            macos_popover::show_popover_window(app, &window);
+            macos_popover::show_quick_paste_window(&window);
             *TRAY_OPENED_AT.lock() = Some(Instant::now());
             let _ = app.emit("tray-visibility", true);
         } else {

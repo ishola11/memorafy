@@ -20,6 +20,8 @@ import { useAppStore } from "@/stores/app-store";
 
 export function TrayPanel() {
   const inputRef = useRef<HTMLInputElement>(null);
+  const isTrayWindow =
+    new URLSearchParams(window.location.search).get("window") === "tray";
   const {
     trayOpen,
     query,
@@ -41,12 +43,11 @@ export function TrayPanel() {
   const showActionToast = useActionToastStore((s) => s.showActionToast);
 
   useEffect(() => {
-    if (trayOpen) {
-      void refresh();
-      void getSyncState().then(setSyncState).catch(() => undefined);
-      requestAnimationFrame(() => inputRef.current?.focus());
-    }
-  }, [trayOpen, refresh]);
+    if (!isTrayWindow && !trayOpen) return;
+    void refresh();
+    void getSyncState().then(setSyncState).catch(() => undefined);
+    requestAnimationFrame(() => inputRef.current?.focus());
+  }, [trayOpen, isTrayWindow, refresh]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -55,7 +56,7 @@ export function TrayPanel() {
     return () => clearTimeout(timer);
   }, [query, search]);
 
-  if (!trayOpen) return null;
+  if (!isTrayWindow && !trayOpen) return null;
 
   const showingSearch = query.trim().length > 0;
 

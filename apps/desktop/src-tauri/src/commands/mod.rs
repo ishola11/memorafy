@@ -211,7 +211,7 @@ pub fn get_item(
 pub fn show_quick_paste(app: AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("quick-paste") {
         crate::position_quick_paste(&window);
-        window.show().map_err(|e| e.to_string())?;
+        crate::macos_popover::show_quick_paste_window(&window);
         window.set_focus().map_err(|e| e.to_string())?;
         app.emit("quick-paste-visibility", true)
             .map_err(|e| e.to_string())?;

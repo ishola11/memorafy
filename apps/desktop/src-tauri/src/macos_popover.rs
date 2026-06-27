@@ -1,20 +1,12 @@
-#![allow(deprecated)]
-
-//! macOS menubar popover — Tauri window overlay path.
-//!
-//! Native `msg_send!` AppKit configuration was removed: selectors like
-//! `setCollectionBehavior:` / `setCanAppearWhileOtherAppIsFullScreen:` throw NSExceptions
-//! on Tauri's WKWebView `NSWindow`, which aborts the process if any frame uses `catch_unwind`
-//! (including Tauri/wry internals) — "Rust cannot catch foreign exceptions".
-//!
-//! `LSUIElement` in Info.plist + Tauri `alwaysOnTop` / `visibleOnAllWorkspaces` is the safe baseline.
-//! Full-screen Space overlay may require Option B (native NSPopover) in a future phase.
+//! macOS menubar helpers — activation policy + native NSPopover for tray history UI.
 
 #[cfg(target_os = "macos")]
 use std::sync::atomic::{AtomicBool, Ordering};
 
 #[cfg(target_os = "macos")]
-use tauri::{ActivationPolicy, AppHandle, WebviewWindow};
+use tauri::{ActivationPolicy, AppHandle, Emitter, WebviewWindow};
+#[cfg(target_os = "macos")]
+use tauri_plugin_nspopover::{AppExt, ToPopoverOptions, WindowExt};
 
 #[cfg(target_os = "macos")]
 static ACTIVATION_POLICY_FAILED: AtomicBool = AtomicBool::new(false);
@@ -36,6 +28,7 @@ pub fn init_menubar_app_policy(_app: &AppHandle) {
 
 #[cfg(target_os = "macos")]
 pub fn activate_settings_policy(app: &AppHandle) {
+    hide_tray_nspopover(app);
     let _ = app.set_activation_policy(ActivationPolicy::Regular);
 }
 
@@ -44,16 +37,52 @@ pub fn restore_menubar_app_policy(app: &AppHandle) {
     ensure_accessory_policy(app);
 }
 
+/// Convert the tray webview window into a native NSPopover anchored to the status item.
+/// Requires tray icon id `"main"` (see `lib.rs` tray setup).
 #[cfg(target_os = "macos")]
-pub fn configure_popover_window(window: &WebviewWindow) {
-    let _ = window.set_always_on_top(true);
-    let _ = window.set_visible_on_all_workspaces(true);
+pub fn setup_tray_nspopover(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("tray") {
+        window.to_popover(ToPopoverOptions {
+            is_fullsize_content: true,
+        });
+        tracing::info!("tray window converted to native NSPopover");
+    } else {
+        tracing::warn!("tray window not found; NSPopover setup skipped");
+    }
 }
 
-/// Show tray / quick-paste overlay without native AppKit selectors.
 #[cfg(target_os = "macos")]
-pub fn show_popover_window(_app: &AppHandle, window: &WebviewWindow) {
-    configure_popover_window(window);
+pub fn show_tray_nspopover(app: &AppHandle) {
+    if !app.is_popover_shown() {
+        // Reset visibility so TrayPanel refreshes after transient outside-dismiss.
+        let _ = app.emit("tray-visibility", false);
+        app.show_popover();
+        let _ = app.emit("tray-visibility", true);
+    }
+}
+
+#[cfg(target_os = "macos")]
+pub fn hide_tray_nspopover(app: &AppHandle) {
+    if app.is_popover_shown() {
+        app.hide_popover();
+        let _ = app.emit("tray-visibility", false);
+    }
+}
+
+#[cfg(target_os = "macos")]
+pub fn toggle_tray_nspopover(app: &AppHandle) {
+    if app.is_popover_shown() {
+        hide_tray_nspopover(app);
+    } else {
+        show_tray_nspopover(app);
+    }
+}
+
+/// Quick Paste stays a Tauri overlay window (not NSPopover).
+#[cfg(target_os = "macos")]
+pub fn show_quick_paste_window(window: &WebviewWindow) {
+    let _ = window.set_always_on_top(true);
+    let _ = window.set_visible_on_all_workspaces(true);
     let _ = window.show();
 }
 
@@ -70,13 +99,8 @@ pub fn activate_settings_policy(_app: &tauri::AppHandle) {}
 pub fn restore_menubar_app_policy(_app: &tauri::AppHandle) {}
 
 #[cfg(not(target_os = "macos"))]
-pub fn configure_popover_window(window: &tauri::WebviewWindow) {
+pub fn show_quick_paste_window(window: &tauri::WebviewWindow) {
     let _ = window.set_always_on_top(true);
-}
-
-#[cfg(not(target_os = "macos"))]
-pub fn show_popover_window(app: &tauri::AppHandle, window: &tauri::WebviewWindow) {
-    let _ = app;
     let _ = window.show();
     let _ = window.set_focus();
 }

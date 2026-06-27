@@ -60,6 +60,7 @@
 - [x] `ensure_accessory_policy` before every popover show; restore after Settings closes
 - [x] No `set_focus` on popover show; `orderFrontRegardless` only
 - [x] NSPanel selectors guarded with `respondsToSelector:`
+- [x] **Stability fix** — removed native `msg_send!` AppKit config (NSExceptions abort process); Tauri-only popover show until native NSPopover phase
 
 ## Next Up
 

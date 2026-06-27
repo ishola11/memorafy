@@ -1,3 +1,4 @@
+use std::sync::atomic::Ordering;
 use std::thread;
 use std::time::Duration;
 
@@ -6,6 +7,9 @@ use tauri::{AppHandle, Emitter, Manager};
 
 use super::content::{classify, hash_content, CapturedContent};
 use crate::AppState;
+
+/// Watcher polls every 400ms; suppress enough iterations to cover programmatic writes.
+const SUPPRESS_ITERATIONS: u32 = 6;
 
 pub fn start_watcher(app: AppHandle) {
     thread::spawn(move || {
@@ -27,6 +31,10 @@ pub fn start_watcher(app: AppHandle) {
                 None => continue,
             };
 
+            if state.clipboard_paused.load(Ordering::Relaxed) {
+                continue;
+            }
+
             {
                 let mut suppress = state.suppress_clipboard.lock();
                 if *suppress > 0 {
@@ -44,6 +52,10 @@ pub fn start_watcher(app: AppHandle) {
                 if hash == last_hash {
                     continue;
                 }
+                if should_skip_capture(&state, &hash) {
+                    last_hash = hash;
+                    continue;
+                }
                 last_hash = hash.clone();
 
                 if let Err(e) = persist_capture(&state, content_type, captured, &hash) {
@@ -52,6 +64,14 @@ pub fn start_watcher(app: AppHandle) {
                     let _ = app.emit("items-updated", ());
                 }
             } else if let Ok(img) = clipboard.get_image() {
+                let hash = hash_content("image", None, Some(&format!("{}x{}", img.width, img.height)));
+                if hash == last_hash {
+                    continue;
+                }
+                if should_skip_capture(&state, &hash) {
+                    last_hash = hash;
+                    continue;
+                }
                 if let Err(e) = persist_image(&state, &app, &img, &mut last_hash) {
                     tracing::error!("persist image: {e}");
                 } else {
@@ -128,13 +148,31 @@ fn persist_image(
 }
 
 pub fn write_clipboard(state: &AppState, text: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let (content_type, _) = classify(text);
+    let hash = hash_content(content_type, Some(text), None);
     {
         let mut suppress = state.suppress_clipboard.lock();
-        *suppress = 2;
+        *suppress = SUPPRESS_ITERATIONS;
+        *state.last_programmatic_hash.lock() = Some(hash);
     }
     let mut clipboard = Clipboard::new()?;
     clipboard.set_text(text.to_string())?;
     Ok(())
+}
+
+fn should_skip_capture(state: &AppState, hash: &str) -> bool {
+    if state
+        .last_programmatic_hash
+        .lock()
+        .as_deref()
+        .is_some_and(|h| h == hash)
+    {
+        return true;
+    }
+    state
+        .db
+        .content_hash_exists(hash)
+        .unwrap_or(false)
 }
 
 /// Skip terminal output, compiler warnings, and other non-user clipboard noise.

@@ -64,6 +64,7 @@ pub struct SearchFiltersDto {
     pub is_favorite: Option<bool>,
     pub is_snippet: Option<bool>,
     pub date_today: Option<bool>,
+    pub in_collection: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -77,12 +78,21 @@ pub struct CollectionDto {
 }
 
 pub const SETTING_HISTORY_RETENTION: &str = "history_retention_days";
+pub const SETTING_CLIPBOARD_PAUSED: &str = "clipboard_paused";
 pub const DEFAULT_HISTORY_RETENTION_DAYS: i64 = 30;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppSettingsDto {
     pub history_retention_days: i64,
+    pub clipboard_paused: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TabFiltersDto {
+    pub tab: String,
+    pub collection_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

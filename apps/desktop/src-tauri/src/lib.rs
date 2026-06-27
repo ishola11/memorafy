@@ -5,6 +5,7 @@ pub mod search;
 pub mod sync;
 pub mod timeline;
 
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 use parking_lot::Mutex;
@@ -18,6 +19,8 @@ use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut,
 pub struct AppState {
     pub db: Arc<db::Database>,
     pub suppress_clipboard: Arc<Mutex<u32>>,
+    pub last_programmatic_hash: Arc<Mutex<Option<String>>>,
+    pub clipboard_paused: Arc<AtomicBool>,
     pub sync_engine: Arc<sync::SyncEngine>,
     pub device_name: String,
     pub device_id: String,
@@ -53,9 +56,13 @@ pub fn run() {
                 app.handle().clone(),
             ));
 
+            let clipboard_paused = database.get_clipboard_paused().unwrap_or(false);
+
             app.manage(AppState {
                 db: database.clone(),
                 suppress_clipboard: Arc::new(Mutex::new(0)),
+                last_programmatic_hash: Arc::new(Mutex::new(None)),
+                clipboard_paused: Arc::new(AtomicBool::new(clipboard_paused)),
                 sync_engine: sync_engine.clone(),
                 device_name,
                 device_id: device_id.clone(),
@@ -118,6 +125,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::search_items,
             commands::get_timeline,
+            commands::get_tab_timeline,
             commands::copy_item,
             commands::toggle_pin,
             commands::toggle_favorite,
@@ -133,6 +141,8 @@ pub fn run() {
             commands::auth_logout,
             commands::get_app_settings,
             commands::set_history_retention,
+            commands::get_clipboard_paused,
+            commands::toggle_clipboard_pause,
             commands::open_settings,
         ])
         .build(tauri::generate_context!())

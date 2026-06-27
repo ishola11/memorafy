@@ -8,6 +8,7 @@ import type {
   SearchFilters,
   SyncState,
   TimelineSection,
+  AppTab,
 } from "@memora/shared-types";
 
 export async function searchItems(filters: SearchFilters): Promise<PreviewCard[]> {
@@ -16,6 +17,23 @@ export async function searchItems(filters: SearchFilters): Promise<PreviewCard[]
 
 export async function getTimeline(): Promise<TimelineSection[]> {
   return invoke<TimelineSection[]>("get_timeline");
+}
+
+export async function getTabTimeline(
+  tab: AppTab,
+  collectionId?: string,
+): Promise<TimelineSection[]> {
+  return invoke<TimelineSection[]>("get_tab_timeline", {
+    filters: { tab, collectionId: collectionId ?? null },
+  });
+}
+
+export async function getClipboardPaused(): Promise<boolean> {
+  return invoke<boolean>("get_clipboard_paused");
+}
+
+export async function toggleClipboardPause(): Promise<boolean> {
+  return invoke<boolean>("toggle_clipboard_pause");
 }
 
 export async function copyItem(id: string, plainText = false): Promise<void> {

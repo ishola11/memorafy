@@ -307,6 +307,15 @@ impl Database {
             );
             params_vec.push(Box::new(tag.clone()));
         }
+        if let Some(ref collection) = filters.collection {
+            sql.push_str(
+                " AND i.id IN (SELECT item_id FROM item_collections WHERE collection_id = ?)",
+            );
+            params_vec.push(Box::new(collection.clone()));
+        }
+        if filters.in_collection.unwrap_or(false) {
+            sql.push_str(" AND i.id IN (SELECT item_id FROM item_collections)");
+        }
 
         sql.push_str(" ORDER BY i.is_pinned DESC, i.created_at DESC LIMIT 50");
 
@@ -320,6 +329,100 @@ impl Database {
     pub fn get_timeline(&self) -> Result<Vec<TimelineSectionDto>, rusqlite::Error> {
         let items = self.list_items(500)?;
         Ok(timeline::build_timeline(&items))
+    }
+
+    pub fn get_tab_timeline(
+        &self,
+        tab: &str,
+        collection_id: Option<&str>,
+    ) -> Result<Vec<TimelineSectionDto>, rusqlite::Error> {
+        let items = self.list_items_by_tab(tab, collection_id, 500)?;
+        if tab == "history" {
+            return Ok(timeline::build_history_timeline(&items));
+        }
+        let label = match tab {
+            "pinned" => "Pinned",
+            "favorites" => "Favorites",
+            "collections" => "Collections",
+            "snippets" => "Snippets",
+            _ => "Items",
+        };
+        Ok(vec![TimelineSectionDto {
+            bucket: tab.to_string(),
+            label: label.to_string(),
+            items: items.iter().map(item_to_preview).collect(),
+        }])
+    }
+
+    pub fn list_items_by_tab(
+        &self,
+        tab: &str,
+        collection_id: Option<&str>,
+        limit: i64,
+    ) -> Result<Vec<ItemRecord>, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let base = "SELECT i.id, i.kind, i.content_type, i.display_title, i.preview_text, i.char_count,
+                    i.url, i.url_title, i.url_domain, i.code_language, i.line_count,
+                    i.blob_path, i.blob_size, i.thumbnail_path, i.content_hash, i.plain_text,
+                    i.trigger, i.source_device_id, d.name, i.is_pinned, i.is_favorited,
+                    i.sync_status, i.created_at, i.updated_at, i.deleted_at
+             FROM items i
+             LEFT JOIN devices d ON d.id = i.source_device_id";
+
+        let (where_clause, mut params_vec): (String, Vec<Box<dyn rusqlite::types::ToSql>>) =
+            match tab {
+                "history" => (
+                    "WHERE i.deleted_at IS NULL AND i.kind = 'history' AND i.is_pinned = 0"
+                        .to_string(),
+                    vec![],
+                ),
+                "pinned" => (
+                    "WHERE i.deleted_at IS NULL AND i.is_pinned = 1".to_string(),
+                    vec![],
+                ),
+                "favorites" => (
+                    "WHERE i.deleted_at IS NULL AND i.is_favorited = 1".to_string(),
+                    vec![],
+                ),
+                "collections" => {
+                    if let Some(cid) = collection_id {
+                        (
+                            "WHERE i.deleted_at IS NULL AND i.id IN (SELECT item_id FROM item_collections WHERE collection_id = ?1)".to_string(),
+                            vec![Box::new(cid.to_string())],
+                        )
+                    } else {
+                        (
+                            "WHERE i.deleted_at IS NULL AND i.id IN (SELECT item_id FROM item_collections)".to_string(),
+                            vec![],
+                        )
+                    }
+                }
+                "snippets" => (
+                    "WHERE i.deleted_at IS NULL AND i.kind = 'snippet'".to_string(),
+                    vec![],
+                ),
+                _ => ("WHERE i.deleted_at IS NULL".to_string(), vec![]),
+            };
+
+        let sql = format!(
+            "{base} {where_clause} ORDER BY i.is_pinned DESC, i.created_at DESC LIMIT ?",
+        );
+        params_vec.push(Box::new(limit));
+
+        let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+            params_vec.iter().map(|p| p.as_ref()).collect();
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(param_refs.as_slice(), map_item_row)?;
+        rows.collect()
+    }
+
+    pub fn content_hash_exists(&self, content_hash: &str) -> Result<bool, rusqlite::Error> {
+        let count: i64 = self.conn.lock().unwrap().query_row(
+            "SELECT COUNT(*) FROM items WHERE content_hash = ?1 AND deleted_at IS NULL",
+            params![content_hash],
+            |r| r.get(0),
+        )?;
+        Ok(count > 0)
     }
 
     pub fn toggle_pin(&self, id: &str) -> Result<(), rusqlite::Error> {
@@ -404,7 +507,21 @@ impl Database {
     pub fn get_app_settings(&self) -> Result<super::models::AppSettingsDto, rusqlite::Error> {
         Ok(super::models::AppSettingsDto {
             history_retention_days: self.get_history_retention_days()?,
+            clipboard_paused: self.get_clipboard_paused()?,
         })
+    }
+
+    pub fn get_clipboard_paused(&self) -> Result<bool, rusqlite::Error> {
+        Ok(self
+            .get_setting(super::models::SETTING_CLIPBOARD_PAUSED)?
+            .is_some_and(|v| v == "1"))
+    }
+
+    pub fn set_clipboard_paused(&self, paused: bool) -> Result<(), rusqlite::Error> {
+        self.set_setting(
+            super::models::SETTING_CLIPBOARD_PAUSED,
+            if paused { "1" } else { "0" },
+        )
     }
 
     /// Soft-delete expired history clips. Keeps pinned, favorited, snippets, and collection items.

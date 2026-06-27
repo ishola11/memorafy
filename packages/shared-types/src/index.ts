@@ -2,6 +2,7 @@ export type ContentType = 'text' | 'url' | 'code' | 'image' | 'richtext' | 'snip
 export type ItemKind = 'history' | 'snippet';
 export type Platform = 'macos' | 'windows';
 export type SyncStatus = 'pending' | 'synced' | 'failed';
+export type AppTab = 'history' | 'pinned' | 'favorites' | 'collections' | 'snippets';
 
 export interface ClipItem {
   id: string;
@@ -66,6 +67,7 @@ export interface SearchFilters {
   isFavorite?: boolean;
   isSnippet?: boolean;
   dateToday?: boolean;
+  inCollection?: boolean;
 }
 
 export interface Collection {
@@ -112,6 +114,7 @@ export interface SyncTransfer {
 
 export interface AppSettings {
   historyRetentionDays: number;
+  clipboardPaused: boolean;
 }
 
 export type HistoryRetentionOption = 0 | 30 | 60 | 90;

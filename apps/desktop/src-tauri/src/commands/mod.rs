@@ -1,7 +1,7 @@
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::clipboard::write_clipboard;
-use crate::db::{item_to_preview, PreviewCardDto, SearchFiltersDto, TimelineSectionDto};
+use crate::db::{item_to_preview, PreviewCardDto, SearchFiltersDto, TabFiltersDto, TimelineSectionDto};
 use crate::AppState;
 
 #[tauri::command]
@@ -19,6 +19,32 @@ pub fn search_items(
 #[tauri::command]
 pub fn get_timeline(state: State<'_, AppState>) -> Result<Vec<TimelineSectionDto>, String> {
     state.db.get_timeline().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_tab_timeline(
+    state: State<'_, AppState>,
+    filters: TabFiltersDto,
+) -> Result<Vec<TimelineSectionDto>, String> {
+    state
+        .db
+        .get_tab_timeline(&filters.tab, filters.collection_id.as_deref())
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_clipboard_paused(state: State<'_, AppState>) -> Result<bool, String> {
+    Ok(state.clipboard_paused.load(std::sync::atomic::Ordering::Relaxed))
+}
+
+#[tauri::command]
+pub fn toggle_clipboard_pause(state: State<'_, AppState>) -> Result<bool, String> {
+    let paused = !state.clipboard_paused.load(std::sync::atomic::Ordering::Relaxed);
+    state
+        .clipboard_paused
+        .store(paused, std::sync::atomic::Ordering::Relaxed);
+    state.db.set_clipboard_paused(paused).map_err(|e| e.to_string())?;
+    Ok(paused)
 }
 
 #[tauri::command]

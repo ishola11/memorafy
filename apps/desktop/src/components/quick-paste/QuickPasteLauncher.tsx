@@ -1,9 +1,11 @@
 import { Search } from "lucide-react";
 import { useEffect, useRef } from "react";
 import { PreviewCard } from "@/components/ui/PreviewCard";
+import { APP_TABS, TabBar } from "@/components/ui/TabBar";
 import { copyItem, toggleFavorite, togglePin } from "@/lib/api";
 import { TIMELINE_LABELS } from "@/lib/utils";
 import { useAppStore } from "@/stores/app-store";
+import type { AppTab } from "@memora/shared-types";
 
 export function QuickPasteLauncher() {
   const inputRef = useRef<HTMLInputElement>(null);
@@ -13,9 +15,9 @@ export function QuickPasteLauncher() {
     results,
     timeline,
     selectedIndex,
-    mode,
+    activeTab,
     setQuery,
-    setMode,
+    setActiveTab,
     setSelectedIndex,
     search,
     refresh,
@@ -40,6 +42,12 @@ export function QuickPasteLauncher() {
     ? results
     : timeline.flatMap((section) => section.items);
 
+  const cycleTab = () => {
+    const idx = APP_TABS.findIndex((t) => t.id === activeTab);
+    const next = APP_TABS[(idx + 1) % APP_TABS.length]?.id ?? "history";
+    setActiveTab(next as AppTab);
+  };
+
   const handleKeyDown = async (e: React.KeyboardEvent) => {
     if (e.key === "ArrowDown") {
       e.preventDefault();
@@ -59,7 +67,7 @@ export function QuickPasteLauncher() {
       setQuickPasteOpen(false);
     } else if (e.key === "Tab") {
       e.preventDefault();
-      setMode(mode === "history" ? "snippets" : "history");
+      cycleTab();
     }
   };
 
@@ -75,35 +83,18 @@ export function QuickPasteLauncher() {
         onMouseDown={(e) => e.stopPropagation()}
         onKeyDown={handleKeyDown}
       >
-        <div className="flex items-center gap-3 border-b border-white/10 px-4 py-3">
-          <Search className="h-4 w-4 text-zinc-500" />
-          <input
-            ref={inputRef}
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search your memory…  device:mac  type:image  is:pinned"
-            className="flex-1 bg-transparent text-sm text-zinc-100 outline-none placeholder:text-zinc-500"
-          />
-          <div className="flex rounded-lg bg-zinc-900 p-0.5 text-[11px]">
-            <button
-              type="button"
-              onClick={() => setMode("history")}
-              className={`rounded-md px-2 py-1 ${
-                mode === "history" ? "bg-zinc-800 text-zinc-100" : "text-zinc-500"
-              }`}
-            >
-              History
-            </button>
-            <button
-              type="button"
-              onClick={() => setMode("snippets")}
-              className={`rounded-md px-2 py-1 ${
-                mode === "snippets" ? "bg-zinc-800 text-zinc-100" : "text-zinc-500"
-              }`}
-            >
-              Snippets
-            </button>
+        <div className="border-b border-white/10 px-4 py-3">
+          <div className="mb-2 flex items-center gap-3">
+            <Search className="h-4 w-4 shrink-0 text-zinc-500" />
+            <input
+              ref={inputRef}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search your memory…  device:mac  type:image  is:pinned"
+              className="flex-1 bg-transparent text-sm text-zinc-100 outline-none placeholder:text-zinc-500"
+            />
           </div>
+          <TabBar activeTab={activeTab} onTabChange={setActiveTab} compact />
         </div>
 
         <div className="max-h-[360px] overflow-y-auto p-2">
@@ -134,9 +125,11 @@ export function QuickPasteLauncher() {
             timeline.map((section) =>
               section.items.length > 0 ? (
                 <div key={section.bucket} className="mb-3">
-                  <p className="sticky top-0 z-10 bg-zinc-950/95 px-2 py-1.5 text-[11px] font-medium uppercase tracking-wide text-zinc-500">
-                    {TIMELINE_LABELS[section.bucket] ?? section.label}
-                  </p>
+                  {activeTab === "history" && (
+                    <p className="sticky top-0 z-10 bg-zinc-950/95 px-2 py-1.5 text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+                      {TIMELINE_LABELS[section.bucket] ?? section.label}
+                    </p>
+                  )}
                   <div className="space-y-1">
                     {section.items.map((card, index) => {
                       const globalIndex = timeline
@@ -165,7 +158,7 @@ export function QuickPasteLauncher() {
         </div>
 
         <div className="flex items-center justify-between border-t border-white/10 px-4 py-2 text-[11px] text-zinc-500">
-          <span>↵ paste · ⇥ switch mode · esc close</span>
+          <span>↵ paste · ⇥ switch tab · esc close</span>
           <span>{flatItems.length} items</span>
         </div>
       </div>

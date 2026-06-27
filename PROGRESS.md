@@ -21,6 +21,15 @@
 - [ ] **Step 15** — Snippets library UI + CRUD
 - [ ] **Step 18** — Signed installers + auto-update
 
+## Phase 2.5: Sync & UX Polish
+
+- [x] **A** — Fix sync echo loop (programmatic hash + content_hash dedupe in watcher)
+- [x] **B** — Tab navigation in Tray + Quick Paste (History | Pinned | Favorites | Collections | Snippets)
+- [x] **C** — Wire Collections tab (chips + footer filter by collection_id)
+- [x] **D** — Pause clipboard watching (setting + tray toggle + IPC)
+- [x] **E** — Snippets tab groundwork (filter `kind='snippet'`)
+- [x] Scrollable settings panel fix
+
 ## Next Up
 
 1. Create Supabase project + run migrations

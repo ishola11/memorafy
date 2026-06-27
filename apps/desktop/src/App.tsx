@@ -50,7 +50,7 @@ export default function App() {
 
   if (windowMode === "settings") {
     return (
-      <TrayShell>
+      <TrayShell className="h-full overflow-hidden">
         <SettingsPanel />
       </TrayShell>
     );

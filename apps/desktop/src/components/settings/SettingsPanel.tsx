@@ -86,15 +86,16 @@ export function SettingsPanel() {
 
   if (!state) {
     return (
-      <div className="flex h-screen items-center justify-center bg-zinc-950 text-zinc-400">
+      <div className="flex h-full items-center justify-center bg-zinc-950 text-zinc-400">
         <Loader2 className="h-5 w-5 animate-spin" />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-zinc-950 px-6 py-8 text-zinc-100">
-      <div className="mx-auto max-w-sm">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-zinc-950 text-zinc-100">
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 py-8">
+        <div className="mx-auto max-w-sm pb-4">
         <div className="mb-8 flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-500/20">
             {state.loggedIn ? (
@@ -231,6 +232,7 @@ export function SettingsPanel() {
         {error && state.loggedIn && (
           <p className="mt-4 text-sm text-red-400">{error}</p>
         )}
+        </div>
       </div>
     </div>
   );

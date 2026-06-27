@@ -37,7 +37,17 @@ pub struct AppState {
     pub clipboard_paused: Arc<AtomicBool>,
     pub sync_engine: Arc<sync::SyncEngine>,
     pub device_name: String,
-    pub device_id: String,
+    pub device_id: Mutex<String>,
+}
+
+impl AppState {
+    pub fn device_id(&self) -> String {
+        self.device_id.lock().clone()
+    }
+
+    pub fn set_device_id(&self, id: String) {
+        *self.device_id.lock() = id;
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -137,7 +147,7 @@ pub fn run() {
                 clipboard_paused: Arc::new(AtomicBool::new(clipboard_paused)),
                 sync_engine: sync_engine.clone(),
                 device_name,
-                device_id: device_id.clone(),
+                device_id: Mutex::new(device_id),
             });
 
             // System tray — macOS uses native NSPopover on left-click (full TrayPanel);

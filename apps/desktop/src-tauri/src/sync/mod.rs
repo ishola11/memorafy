@@ -150,25 +150,34 @@ impl SyncEngine {
 
     async fn bootstrap_after_auth(&self, session: &AuthSession) -> Result<(), String> {
         let client = self.client.as_ref().ok_or("Supabase not configured")?;
-        let device_id = self
-            .db
-            .get_setting("local_device_id")
-            .map_err(|e| e.to_string())?
-            .unwrap_or_default();
-        let device_name = self
-            .db
-            .get_setting("local_device_name")
-            .map_err(|e| e.to_string())?
-            .unwrap_or_else(|| "My Device".to_string());
+        let (device_id, device_name) = self.prepare_local_device(session)?;
         let platform = if cfg!(target_os = "macos") {
             "macos"
         } else {
             "windows"
         };
 
-        client
+        match client
             .register_device(session, &device_id, &device_name, platform)
             .await
+        {
+            Ok(()) => {}
+            Err(err) if err.contains("23505") => {
+                tracing::info!("device id linked to another account — rotating local device id");
+                let (device_id, device_name) = self.rotate_local_device()?;
+                client
+                    .register_device(session, &device_id, &device_name, platform)
+                    .await
+                    .map_err(|e| e.to_string())?;
+            }
+            Err(err) => return Err(err),
+        }
+
+        self.db
+            .set_setting(
+                crate::db::models::SETTING_LAST_AUTH_USER_ID,
+                &session.user_id,
+            )
             .map_err(|e| e.to_string())?;
 
         // Devices must exist locally before items (FK: source_device_id)
@@ -207,6 +216,55 @@ impl SyncEngine {
         let _ = self.app.emit("items-updated", ());
         let _ = self.app.emit("collections-updated", ());
         Ok(())
+    }
+
+    fn prepare_local_device(&self, session: &AuthSession) -> Result<(String, String), String> {
+        let last_user = self
+            .db
+            .get_setting(crate::db::models::SETTING_LAST_AUTH_USER_ID)
+            .map_err(|e| e.to_string())?;
+        if let Some(previous) = last_user.as_ref() {
+            if previous != &session.user_id {
+                tracing::info!("cloud account changed — rotating local device id");
+                return self.rotate_local_device();
+            }
+        }
+
+        let device_id = self
+            .db
+            .get_setting(crate::db::models::SETTING_LOCAL_DEVICE_ID)
+            .map_err(|e| e.to_string())?
+            .filter(|id| !id.is_empty())
+            .unwrap_or_else(|| {
+                self.db
+                    .ensure_device()
+                    .unwrap_or_else(|_| String::new())
+            });
+        let device_name = self
+            .db
+            .get_setting(crate::db::models::SETTING_LOCAL_DEVICE_NAME)
+            .map_err(|e| e.to_string())?
+            .unwrap_or_else(|| "My Device".to_string());
+        Ok((device_id, device_name))
+    }
+
+    fn rotate_local_device(&self) -> Result<(String, String), String> {
+        let device_id = self
+            .db
+            .rotate_local_device()
+            .map_err(|e| e.to_string())?;
+        let device_name = self
+            .db
+            .get_device_name(&device_id)
+            .map_err(|e| e.to_string())?;
+        self.sync_active_device_id(&device_id);
+        Ok((device_id, device_name))
+    }
+
+    fn sync_active_device_id(&self, device_id: &str) {
+        if let Some(state) = self.app.try_state::<AppState>() {
+            state.set_device_id(device_id.to_string());
+        }
     }
 
     async fn sync_tick(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {

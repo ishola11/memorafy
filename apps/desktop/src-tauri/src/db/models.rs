@@ -80,6 +80,9 @@ pub struct CollectionDto {
 pub const SETTING_HISTORY_RETENTION: &str = "history_retention_days";
 pub const SETTING_CLIPBOARD_PAUSED: &str = "clipboard_paused";
 pub const SETTING_THEME_PREFERENCE: &str = "theme_preference";
+pub const SETTING_LAST_AUTH_USER_ID: &str = "last_auth_user_id";
+pub const SETTING_LOCAL_DEVICE_ID: &str = "local_device_id";
+pub const SETTING_LOCAL_DEVICE_NAME: &str = "local_device_name";
 pub const DEFAULT_HISTORY_RETENTION_DAYS: i64 = 30;
 pub const DEFAULT_THEME_PREFERENCE: &str = "system";
 

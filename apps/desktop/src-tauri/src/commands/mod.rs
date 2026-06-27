@@ -95,7 +95,7 @@ pub fn create_snippet(
     let item = state
         .db
         .create_snippet(
-            &state.device_id,
+            &state.device_id(),
             &input.title,
             &input.text,
             input.trigger.as_deref(),

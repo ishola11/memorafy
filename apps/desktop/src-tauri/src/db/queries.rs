@@ -112,15 +112,29 @@ impl Database {
     }
 
     pub fn ensure_device(&self) -> Result<String, rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
-        if let Ok(id) = conn.query_row(
-            "SELECT id FROM devices WHERE is_current = 1 LIMIT 1",
-            [],
-            |r| r.get::<_, String>(0),
-        ) {
-            return Ok(id);
+        if let Some(id) = self.get_setting(super::models::SETTING_LOCAL_DEVICE_ID)? {
+            if !id.is_empty() {
+                let conn = self.conn.lock().unwrap();
+                let exists: i64 = conn.query_row(
+                    "SELECT COUNT(*) FROM devices WHERE id = ?1",
+                    params![id],
+                    |r| r.get(0),
+                )?;
+                if exists > 0 {
+                    conn.execute(
+                        "UPDATE devices SET is_current = CASE WHEN id = ?1 THEN 1 ELSE 0 END",
+                        params![id],
+                    )?;
+                    return Ok(id);
+                }
+            }
         }
 
+        self.rotate_local_device()
+    }
+
+    /// New local device identity (e.g. after switching cloud accounts on this machine).
+    pub fn rotate_local_device(&self) -> Result<String, rusqlite::Error> {
         let id = Uuid::new_v4().to_string();
         let name = hostname::get()
             .ok()
@@ -133,11 +147,16 @@ impl Database {
         };
         let now = Utc::now().to_rfc3339();
 
+        let conn = self.conn.lock().unwrap();
         conn.execute("UPDATE devices SET is_current = 0", [])?;
         conn.execute(
             "INSERT INTO devices (id, name, platform, last_seen_at, is_current, created_at) VALUES (?1, ?2, ?3, ?4, 1, ?5)",
             params![id, name, platform, now, now],
         )?;
+        drop(conn);
+
+        self.set_setting(super::models::SETTING_LOCAL_DEVICE_ID, &id)?;
+        self.set_setting(super::models::SETTING_LOCAL_DEVICE_NAME, &name)?;
         Ok(id)
     }
 

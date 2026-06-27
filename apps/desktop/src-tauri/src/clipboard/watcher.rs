@@ -105,7 +105,7 @@ fn persist_capture(
     };
 
     state.db.insert_item(
-        &state.device_id,
+        &state.device_id(),
         content_type,
         plain,
         url,
@@ -114,7 +114,7 @@ fn persist_capture(
         None,
         hash,
     )?;
-    state.db.touch_device(&state.device_id)?;
+    state.db.touch_device(&state.device_id())?;
     Ok(())
 }
 
@@ -140,7 +140,7 @@ fn persist_image(
 
     let size = image.bytes.len() as i64;
     state.db.insert_item(
-        &state.device_id,
+        &state.device_id(),
         "image",
         None,
         None,
@@ -149,7 +149,7 @@ fn persist_image(
         None,
         &hash,
     )?;
-    state.db.touch_device(&state.device_id)?;
+    state.db.touch_device(&state.device_id())?;
 
     let _ = app;
     Ok(())

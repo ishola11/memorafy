@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "npm run dev --workspace=@memora/desktop",
     "build": "npm run build --workspace=@memora/desktop",
-    "tauri": "npm run tauri --workspace=@memora/desktop"
+    "tauri": "npm run tauri --workspace=@memora/desktop",
+    "generate:updater-keys": "powershell -ExecutionPolicy Bypass -File scripts/generate-updater-keys.ps1",
+    "sync:updater-pubkey": "node scripts/sync-updater-pubkey.mjs"
   },
   "workspaces": [
     "apps/*",

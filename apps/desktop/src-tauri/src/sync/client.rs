@@ -1,7 +1,7 @@
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION};
 use serde::{Deserialize, Serialize};
 
-use super::auth::{session_from_auth_response, AuthSession};
+use super::auth::{session_from_auth_response, AuthSession, RefreshError};
 use super::config::SyncConfig;
 use crate::db::ItemRecord;
 
@@ -102,7 +102,7 @@ impl SupabaseClient {
         session_from_auth_response(&value)
     }
 
-    pub async fn refresh(&self, session: &AuthSession) -> Result<AuthSession, String> {
+    pub async fn refresh(&self, session: &AuthSession) -> Result<AuthSession, RefreshError> {
         let url = format!("{}/token?grant_type=refresh_token", self.config.auth_url());
         let body = serde_json::json!({ "refresh_token": session.refresh_token });
         let resp = self
@@ -113,14 +113,17 @@ impl SupabaseClient {
             .json(&body)
             .send()
             .await
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| RefreshError::Network(e.to_string()))?;
 
         if !resp.status().is_success() {
-            return Err("Session expired — please sign in again".to_string());
+            return Err(RefreshError::InvalidSession);
         }
 
-        let value: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
-        session_from_auth_response(&value)
+        let value: serde_json::Value = resp
+            .json()
+            .await
+            .map_err(|e| RefreshError::Network(e.to_string()))?;
+        session_from_auth_response(&value).map_err(RefreshError::Network)
     }
 
     pub async fn upsert_item(&self, session: &AuthSession, item: &ItemRecord) -> Result<(), String> {

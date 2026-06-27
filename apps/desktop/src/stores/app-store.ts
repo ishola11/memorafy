@@ -35,6 +35,7 @@ interface AppState {
   selectedIndex: number;
   loading: boolean;
   setQuickPasteOpen: (open: boolean) => void;
+  closeQuickPaste: () => void;
   setTrayOpen: (open: boolean) => void;
   setQuery: (query: string) => void;
   setActiveTab: (tab: AppTab) => void;
@@ -58,11 +59,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   selectedIndex: 0,
   loading: false,
 
-  setQuickPasteOpen: (open) => {
-    set({ quickPasteOpen: open });
-    if (!open) {
-      void api.hideQuickPaste().catch(() => undefined);
-    }
+  setQuickPasteOpen: (open) => set({ quickPasteOpen: open }),
+  closeQuickPaste: () => {
+    void api.hideQuickPaste().catch(() => undefined);
   },
   setTrayOpen: (open) => set({ trayOpen: open }),
   setQuery: (query) => set({ query }),

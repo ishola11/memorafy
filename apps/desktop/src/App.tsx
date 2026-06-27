@@ -26,7 +26,7 @@ function getWindowMode(): "quick-paste" | "tray" | "settings" | "main" {
 
 export default function App() {
   const windowMode = getWindowMode();
-  const { setQuickPasteOpen, setTrayOpen, refresh } = useAppStore();
+  const { setTrayOpen, refresh } = useAppStore();
   const themePrefRef = useRef<ThemePreference>("system");
 
   useEffect(() => {
@@ -35,7 +35,7 @@ export default function App() {
     });
 
     if (windowMode === "quick-paste") {
-      setQuickPasteOpen(true);
+      useAppStore.setState({ quickPasteOpen: true });
     }
     if (windowMode === "tray") {
       setTrayOpen(true);
@@ -57,7 +57,7 @@ export default function App() {
     }).then((unlisten) => unsubs.push(unlisten));
 
     void onQuickPasteVisibility((visible) => {
-      setQuickPasteOpen(visible);
+      useAppStore.setState({ quickPasteOpen: visible });
     }).then((unlisten) => unsubs.push(unlisten));
 
     void onTrayVisibility((visible) => {
@@ -75,7 +75,7 @@ export default function App() {
     return () => {
       unsubs.forEach((fn) => fn());
     };
-  }, [setQuickPasteOpen, setTrayOpen, refresh, windowMode]);
+  }, [setTrayOpen, refresh, windowMode]);
 
   if (windowMode === "settings") {
     return (

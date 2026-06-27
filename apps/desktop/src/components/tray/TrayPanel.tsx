@@ -1,5 +1,7 @@
 import { Pause, Search, Settings } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { SnippetEditorModal, type SnippetEditorState } from "@/components/snippets/SnippetEditorModal";
+import { SnippetsTabHeader } from "@/components/snippets/SnippetsTabHeader";
 import { CollectionChips } from "@/components/ui/CollectionChips";
 import { PreviewCard } from "@/components/ui/PreviewCard";
 import { TabBar } from "@/components/ui/TabBar";
@@ -10,6 +12,7 @@ import {
   getSyncState,
   openSettings,
   removeItemFromCollection,
+  saveItemAsSnippet,
   toggleFavorite,
   togglePin,
 } from "@/lib/api";
@@ -17,6 +20,16 @@ import type { PreviewCard as PreviewCardType, SyncState } from "@memora/shared-t
 import { TIMELINE_LABELS, cn } from "@/lib/utils";
 import { useActionToastStore } from "@/stores/action-toast-store";
 import { useAppStore } from "@/stores/app-store";
+
+const SNIPPET_KINDS = new Set(["text", "url", "code"]);
+
+function isSnippetCard(card: PreviewCardType) {
+  return card.kind === "snippet" || card.badges.includes("snippet");
+}
+
+function canSaveAsSnippet(card: PreviewCardType) {
+  return !isSnippetCard(card) && SNIPPET_KINDS.has(card.kind);
+}
 
 export function TrayPanel() {
   const inputRef = useRef<HTMLInputElement>(null);
@@ -40,6 +53,7 @@ export function TrayPanel() {
   } = useAppStore();
 
   const [syncState, setSyncState] = useState<SyncState | null>(null);
+  const [snippetEditor, setSnippetEditor] = useState<SnippetEditorState | null>(null);
   const showActionToast = useActionToastStore((s) => s.showActionToast);
 
   useEffect(() => {
@@ -97,6 +111,16 @@ export function TrayPanel() {
       const name = collections.find((c) => c.id === collectionId)?.name ?? "collection";
       showActionToast(`Removed from ${name}`);
     },
+    onSaveAsSnippet: canSaveAsSnippet(card)
+      ? async () => {
+          await saveItemAsSnippet(card.id);
+          await refresh();
+          showActionToast("Saved as snippet");
+        }
+      : undefined,
+    onEditSnippet: isSnippetCard(card)
+      ? () => setSnippetEditor({ mode: "edit", snippetId: card.id })
+      : undefined,
   });
 
   const collectionsEmptyMessage =
@@ -107,7 +131,7 @@ export function TrayPanel() {
         : "Select a collection above, or add clips via the folder icon on any card.";
 
   const snippetsEmptyMessage =
-    "Snippets are saved text you reuse often — signatures, templates, and boilerplate. Snippet creation is coming soon.";
+    "Save reusable text — signatures, templates, and boilerplate. Click New snippet to create your first one.";
 
   return (
     <div
@@ -163,6 +187,10 @@ export function TrayPanel() {
         </div>
       )}
 
+      {activeTab === "snippets" && (
+        <SnippetsTabHeader onNewSnippet={() => setSnippetEditor({ mode: "create" })} />
+      )}
+
       <div className="panel-content p-2">
         {showingSearch ? (
           results.length === 0 ? (
@@ -216,6 +244,15 @@ export function TrayPanel() {
           {clipboardPaused ? "Paused" : "Pause capture"}
         </button>
       </footer>
+
+      <SnippetEditorModal
+        editor={snippetEditor}
+        onClose={() => setSnippetEditor(null)}
+        onSaved={async () => {
+          await refresh();
+          showActionToast(snippetEditor?.mode === "create" ? "Snippet created" : "Snippet updated");
+        }}
+      />
     </div>
   );
 }

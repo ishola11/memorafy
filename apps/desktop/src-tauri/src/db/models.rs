@@ -108,6 +108,23 @@ pub struct UpdateCollectionDto {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct CreateSnippetDto {
+    pub title: String,
+    pub text: String,
+    pub trigger: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateSnippetDto {
+    pub id: String,
+    pub title: String,
+    pub text: String,
+    pub trigger: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TabFiltersDto {
     pub tab: String,
     pub collection_id: Option<String>,

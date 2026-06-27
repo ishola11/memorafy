@@ -86,6 +86,55 @@ pub fn rename_item(state: State<'_, AppState>, id: String, title: String) -> Res
 }
 
 #[tauri::command]
+pub fn create_snippet(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    input: crate::db::CreateSnippetDto,
+) -> Result<crate::db::ItemRecord, String> {
+    let item = state
+        .db
+        .create_snippet(
+            &state.device_id,
+            &input.title,
+            &input.text,
+            input.trigger.as_deref(),
+        )
+        .map_err(|e| e.to_string())?;
+    let _ = app.emit("items-updated", ());
+    Ok(item)
+}
+
+#[tauri::command]
+pub fn update_snippet(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    input: crate::db::UpdateSnippetDto,
+) -> Result<crate::db::ItemRecord, String> {
+    let item = state
+        .db
+        .update_snippet(
+            &input.id,
+            &input.title,
+            &input.text,
+            input.trigger.as_deref(),
+        )
+        .map_err(|e| e.to_string())?;
+    let _ = app.emit("items-updated", ());
+    Ok(item)
+}
+
+#[tauri::command]
+pub fn save_item_as_snippet(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<crate::db::ItemRecord, String> {
+    let item = state.db.save_item_as_snippet(&id).map_err(|e| e.to_string())?;
+    let _ = app.emit("items-updated", ());
+    Ok(item)
+}
+
+#[tauri::command]
 pub fn get_collections(state: State<'_, AppState>) -> Result<Vec<crate::db::CollectionDto>, String> {
     state.db.get_collections().map_err(|e| e.to_string())
 }
@@ -209,25 +258,13 @@ pub fn get_item(
 
 #[tauri::command]
 pub fn show_quick_paste(app: AppHandle) -> Result<(), String> {
-    if let Some(window) = app.get_webview_window("quick-paste") {
-        crate::position_quick_paste(&window);
-        crate::macos_quick_paste::show_quick_paste_window(&window, &app);
-        app.emit("quick-paste-visibility", true)
-            .map_err(|e| e.to_string())?;
-    }
+    crate::show_quick_paste(&app);
     Ok(())
 }
 
 #[tauri::command]
 pub fn hide_quick_paste(app: AppHandle) -> Result<(), String> {
-    #[cfg(target_os = "macos")]
-    crate::macos_quick_paste::hide_quick_paste_panel(&app);
-    #[cfg(not(target_os = "macos"))]
-    if let Some(window) = app.get_webview_window("quick-paste") {
-        window.hide().map_err(|e| e.to_string())?;
-    }
-    app.emit("quick-paste-visibility", false)
-        .map_err(|e| e.to_string())?;
+    crate::hide_quick_paste(&app);
     Ok(())
 }
 

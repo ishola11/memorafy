@@ -3,6 +3,23 @@ use serde::{Deserialize, Serialize};
 
 use crate::db::Database;
 
+#[derive(Debug, Clone)]
+pub enum RefreshError {
+    Network(String),
+    InvalidSession,
+}
+
+impl std::fmt::Display for RefreshError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RefreshError::Network(msg) => write!(f, "{msg}"),
+            RefreshError::InvalidSession => write!(f, "Session expired — please sign in again"),
+        }
+    }
+}
+
+impl std::error::Error for RefreshError {}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuthSession {
     pub access_token: String,

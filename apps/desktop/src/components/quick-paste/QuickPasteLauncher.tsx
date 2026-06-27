@@ -1,5 +1,7 @@
 import { Search } from "lucide-react";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import { SnippetEditorModal, type SnippetEditorState } from "@/components/snippets/SnippetEditorModal";
+import { SnippetsTabHeader } from "@/components/snippets/SnippetsTabHeader";
 import { PreviewCard } from "@/components/ui/PreviewCard";
 import { APP_TABS, TabBar } from "@/components/ui/TabBar";
 import {
@@ -7,6 +9,7 @@ import {
   copyItem,
   deleteItem,
   removeItemFromCollection,
+  saveItemAsSnippet,
   toggleFavorite,
   togglePin,
 } from "@/lib/api";
@@ -16,7 +19,17 @@ import { useAppStore } from "@/stores/app-store";
 import type { AppTab, PreviewCard as PreviewCardType } from "@memora/shared-types";
 
 const SNIPPETS_EMPTY_MESSAGE =
-  "Snippets are saved text you reuse often — signatures, templates, and boilerplate. Snippet creation is coming soon; for now, history clips appear here only if marked as snippets.";
+  "Save reusable text — signatures, templates, and boilerplate. Click New snippet to create your first one.";
+
+const SNIPPET_KINDS = new Set(["text", "url", "code"]);
+
+function isSnippetCard(card: PreviewCardType) {
+  return card.kind === "snippet" || card.badges.includes("snippet");
+}
+
+function canSaveAsSnippet(card: PreviewCardType) {
+  return !isSnippetCard(card) && SNIPPET_KINDS.has(card.kind);
+}
 
 export function QuickPasteLauncher() {
   const inputRef = useRef<HTMLInputElement>(null);
@@ -35,9 +48,10 @@ export function QuickPasteLauncher() {
     search,
     refresh,
     collections,
-    setQuickPasteOpen,
+    closeQuickPaste,
   } = useAppStore();
   const showActionToast = useActionToastStore((s) => s.showActionToast);
+  const [snippetEditor, setSnippetEditor] = useState<SnippetEditorState | null>(null);
 
   useEffect(() => {
     if (quickPasteOpen) {
@@ -52,13 +66,13 @@ export function QuickPasteLauncher() {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.preventDefault();
-        setQuickPasteOpen(false);
+        closeQuickPaste();
       }
     };
 
     document.addEventListener("keydown", onKeyDown, true);
     return () => document.removeEventListener("keydown", onKeyDown, true);
-  }, [quickPasteOpen, setQuickPasteOpen]);
+  }, [closeQuickPaste]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -89,11 +103,11 @@ export function QuickPasteLauncher() {
       const item = flatItems[selectedIndex];
       if (item) {
         await copyItem(item.id);
-        setQuickPasteOpen(false);
+        closeQuickPaste();
       }
     } else if (e.key === "Escape") {
       e.preventDefault();
-      setQuickPasteOpen(false);
+      closeQuickPaste();
     } else if (e.key === "Tab") {
       e.preventDefault();
       cycleTab();
@@ -106,12 +120,12 @@ export function QuickPasteLauncher() {
     onCopy: async () => {
       await copyItem(card.id);
       showActionToast("Copied to clipboard");
-      setQuickPasteOpen(false);
+      closeQuickPaste();
     },
     onCopyPlain: async () => {
       await copyItem(card.id, true);
       showActionToast("Copied as plain text");
-      setQuickPasteOpen(false);
+      closeQuickPaste();
     },
     onPin: async () => {
       await togglePin(card.id);
@@ -141,9 +155,19 @@ export function QuickPasteLauncher() {
       const name = collections.find((c) => c.id === collectionId)?.name ?? "collection";
       showActionToast(`Removed from ${name}`);
     },
+    onSaveAsSnippet: canSaveAsSnippet(card)
+      ? async () => {
+          await saveItemAsSnippet(card.id);
+          await refresh();
+          showActionToast("Saved as snippet");
+        }
+      : undefined,
+    onEditSnippet: isSnippetCard(card)
+      ? () => setSnippetEditor({ mode: "edit", snippetId: card.id })
+      : undefined,
   });
 
-  const dismiss = () => setQuickPasteOpen(false);
+  const dismiss = () => closeQuickPaste();
 
   const shellClass = isQuickPasteWindow
     ? "flex h-full w-full flex-col bg-black/40 backdrop-blur-[4px] dark:bg-black/55"
@@ -177,6 +201,10 @@ export function QuickPasteLauncher() {
             </div>
             <TabBar activeTab={activeTab} onTabChange={setActiveTab} compact />
           </header>
+
+          {activeTab === "snippets" && (
+            <SnippetsTabHeader onNewSnippet={() => setSnippetEditor({ mode: "create" })} />
+          )}
 
           <div className="panel-content min-h-0 p-2.5">
             {query.trim() ? (
@@ -238,6 +266,15 @@ export function QuickPasteLauncher() {
           </footer>
         </div>
       </div>
+
+      <SnippetEditorModal
+        editor={snippetEditor}
+        onClose={() => setSnippetEditor(null)}
+        onSaved={async () => {
+          await refresh();
+          showActionToast(snippetEditor?.mode === "create" ? "Snippet created" : "Snippet updated");
+        }}
+      />
     </div>
   );
 }

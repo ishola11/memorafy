@@ -13,7 +13,7 @@ mod windows_tray;
 
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use parking_lot::Mutex;
 use tauri::{
@@ -24,6 +24,10 @@ use tauri::{
 #[cfg(not(target_os = "macos"))]
 use tauri::tray::TrayIconBuilder;
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
+
+/// Ignore blur immediately after opening Quick Paste (shortcut / panel focus handoff).
+static QUICK_PASTE_OPENED_AT: Mutex<Option<Instant>> = Mutex::new(None);
+const QUICK_PASTE_BLUR_GRACE: Duration = Duration::from_millis(500);
 
 pub struct AppState {
     pub db: Arc<db::Database>,
@@ -36,12 +40,11 @@ pub struct AppState {
     pub device_id: String,
 }
 
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
-pub fn run() {
-    tracing_subscriber::fmt::init();
-
-    let mut builder = tauri::Builder::default()
+#[cfg(target_os = "macos")]
+fn app_builder() -> tauri::Builder<tauri::Wry> {
+    tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_process::init())
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, _shortcut, event| {
@@ -50,19 +53,51 @@ pub fn run() {
                     }
                 })
                 .build(),
-        );
+        )
+        .plugin(tauri_plugin_nspopover::init())
+        .plugin(tauri_nspanel::init())
+}
 
-    #[cfg(target_os = "macos")]
-    {
-        builder = builder
-            .plugin(tauri_plugin_nspopover::init())
-            .plugin(tauri_nspanel::init());
-    }
+#[cfg(not(target_os = "macos"))]
+fn app_builder() -> tauri::Builder<tauri::Wry> {
+    tauri::Builder::default()
+        .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_process::init())
+        .plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_handler(|app, _shortcut, event| {
+                    if event.state == ShortcutState::Pressed {
+                        toggle_quick_paste(app, true);
+                    }
+                })
+                .build(),
+        )
+}
 
-    builder
+fn updater_pubkey() -> Option<String> {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("keys/memora.key.pub");
+    std::fs::read_to_string(path)
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    tracing_subscriber::fmt::init();
+
+    app_builder()
         .setup(|app| {
             #[cfg(target_os = "macos")]
             macos_popover::init_menubar_app_policy(app.handle());
+
+            if let Some(pubkey) = updater_pubkey() {
+                app.handle().plugin(
+                    tauri_plugin_updater::Builder::new()
+                        .pubkey(pubkey)
+                        .build(),
+                )?;
+            }
 
             let app_data = app.path().app_data_dir().expect("app data dir");
             std::fs::create_dir_all(&app_data).ok();
@@ -192,6 +227,9 @@ pub fn run() {
             commands::toggle_favorite,
             commands::delete_item,
             commands::rename_item,
+            commands::create_snippet,
+            commands::update_snippet,
+            commands::save_item_as_snippet,
             commands::get_collections,
             commands::create_collection,
             commands::update_collection,
@@ -242,10 +280,14 @@ pub fn run() {
                             macos_popover::restore_menubar_app_policy(app);
                         }
                         if label == "quick-paste" {
-                            let _ = app.emit("quick-paste-visibility", false);
-                            if let Some(w) = app.get_webview_window("quick-paste") {
-                                let _ = w.hide();
+                            let skip_blur = QUICK_PASTE_OPENED_AT
+                                .lock()
+                                .as_ref()
+                                .is_some_and(|t| t.elapsed() < QUICK_PASTE_BLUR_GRACE);
+                            if skip_blur {
+                                return;
                             }
+                            hide_quick_paste(app);
                         }
                         if label == "tray" {
                             #[cfg(target_os = "macos")]
@@ -278,24 +320,49 @@ fn open_memora(app: &tauri::AppHandle) {
     windows_tray::open_tray(app);
 }
 
-fn toggle_quick_paste(app: &tauri::AppHandle, show: bool) {
-    if let Some(window) = app.get_webview_window("quick-paste") {
-        if show {
-            #[cfg(target_os = "macos")]
-            macos_popover::hide_tray_nspopover(app);
+pub fn show_quick_paste(app: &tauri::AppHandle) {
+    let Some(window) = app.get_webview_window("quick-paste") else {
+        return;
+    };
 
-            position_quick_paste(&window);
-            macos_quick_paste::show_quick_paste_window(&window, app);
-            let _ = app.emit("quick-paste-visibility", true);
-        } else {
-            #[cfg(target_os = "macos")]
-            macos_quick_paste::hide_quick_paste_panel(app);
-            #[cfg(not(target_os = "macos"))]
-            {
-                let _ = window.hide();
-            }
-            let _ = app.emit("quick-paste-visibility", false);
+    if window.is_visible().unwrap_or(false) {
+        hide_quick_paste(app);
+        return;
+    }
+
+    #[cfg(target_os = "macos")]
+    macos_popover::hide_tray_nspopover(app);
+
+    position_quick_paste(&window);
+    macos_quick_paste::show_quick_paste_window(&window, app);
+    *QUICK_PASTE_OPENED_AT.lock() = Some(Instant::now());
+    let _ = app.emit("quick-paste-visibility", true);
+}
+
+pub fn hide_quick_paste(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("quick-paste") {
+        if !window.is_visible().unwrap_or(false) {
+            return;
         }
+    }
+
+    #[cfg(target_os = "macos")]
+    macos_quick_paste::hide_quick_paste_panel(app);
+
+    #[cfg(not(target_os = "macos"))]
+    if let Some(window) = app.get_webview_window("quick-paste") {
+        let _ = window.hide();
+    }
+
+    *QUICK_PASTE_OPENED_AT.lock() = None;
+    let _ = app.emit("quick-paste-visibility", false);
+}
+
+fn toggle_quick_paste(app: &tauri::AppHandle, show: bool) {
+    if show {
+        show_quick_paste(app);
+    } else {
+        hide_quick_paste(app);
     }
 }
 

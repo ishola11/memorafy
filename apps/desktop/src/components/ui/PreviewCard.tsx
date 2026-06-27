@@ -7,6 +7,7 @@ import {
   Globe,
   Image as ImageIcon,
   Loader2,
+  Pencil,
   Pin,
   Star,
   Trash2,
@@ -33,6 +34,8 @@ type BusyAction =
   | "pin"
   | "favorite"
   | "delete"
+  | "saveAsSnippet"
+  | "editSnippet"
   | `collection:${string}`
   | null;
 
@@ -45,6 +48,8 @@ interface PreviewCardProps {
   onPin?: () => void | Promise<void>;
   onFavorite?: () => void | Promise<void>;
   onDelete?: () => void | Promise<void>;
+  onSaveAsSnippet?: () => void | Promise<void>;
+  onEditSnippet?: () => void | Promise<void>;
   collections?: Collection[];
   itemCollectionIds?: string[];
   onAddToCollection?: (collectionId: string) => void | Promise<void>;
@@ -110,6 +115,8 @@ export function PreviewCard({
   onPin,
   onFavorite,
   onDelete,
+  onSaveAsSnippet,
+  onEditSnippet,
   collections = [],
   itemCollectionIds: itemCollectionIdsProp,
   onAddToCollection,
@@ -145,7 +152,14 @@ export function PreviewCard({
 
   const showCollections = collections.length > 0 && (onAddToCollection || onRemoveFromCollection);
   const hasActions = Boolean(
-    onCopy || onCopyPlain || onPin || onFavorite || onDelete || showCollections,
+    onCopy ||
+      onCopyPlain ||
+      onPin ||
+      onFavorite ||
+      onDelete ||
+      onSaveAsSnippet ||
+      onEditSnippet ||
+      showCollections,
   );
   const isBusy = busyAction !== null;
   const busyCollectionId =
@@ -295,6 +309,26 @@ export function PreviewCard({
                   <FolderPlus className="h-3.5 w-3.5" />
                 )}
               </button>
+            )}
+            {onSaveAsSnippet && (
+              <ActionButton
+                label="Save as snippet"
+                disabled={isBusy}
+                busy={busyAction === "saveAsSnippet"}
+                onClick={() => void runAction(onSaveAsSnippet, setBusyAction, "saveAsSnippet")}
+              >
+                <Zap className="h-3.5 w-3.5" />
+              </ActionButton>
+            )}
+            {onEditSnippet && (
+              <ActionButton
+                label="Edit snippet"
+                disabled={isBusy}
+                busy={busyAction === "editSnippet"}
+                onClick={() => void runAction(onEditSnippet, setBusyAction, "editSnippet")}
+              >
+                <Pencil className="h-3.5 w-3.5" />
+              </ActionButton>
             )}
             {onDelete && (
               <ActionButton

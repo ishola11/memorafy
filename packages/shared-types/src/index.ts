@@ -19,6 +19,7 @@ export interface ClipItem {
   blobPath: string | null;
   blobSize: number | null;
   thumbnailPath: string | null;
+  plainText: string | null;
   trigger: string | null;
   sourceDeviceId: string | null;
   sourceDeviceName: string | null;
@@ -131,4 +132,17 @@ export interface UpdateCollectionInput {
   id: string;
   name?: string;
   color?: string;
+}
+
+export interface CreateSnippetInput {
+  title: string;
+  text: string;
+  trigger?: string | null;
+}
+
+export interface UpdateSnippetInput {
+  id: string;
+  title: string;
+  text: string;
+  trigger?: string | null;
 }

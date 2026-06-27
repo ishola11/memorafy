@@ -10,7 +10,7 @@
 
 - [x] App runs on Windows, single tray icon, Vite EBUSY fix
 
-## Phase 2: Cloud Sync (current)
+## Phase 2: Cloud Sync ✅
 
 - [x] **Step 14** — Supabase REST push/pull (items + devices)
 - [x] **Step 14b** — Realtime WebSocket listener (postgres_changes)
@@ -19,8 +19,8 @@
 - [x] **Step 17** — Settings window (sign in, devices, sync status)
 - [x] **Step 17b** — History retention (30/60/90 days, keeps pins/favorites/collections)
 - [x] **Collections cloud sync** — push/pull collections + item_collections, realtime
-- [ ] **Step 15** — Snippets library UI + CRUD
-- [ ] **Step 18** — Signed installers + auto-update
+- [x] **Step 15** — Snippets library UI + CRUD
+- [x] **Step 18** — Signed installers + auto-update
 
 ## Phase 2.5: Sync & UX Polish ✅
 
@@ -75,8 +75,8 @@
 
 1. Run `003_collections_realtime.sql` in Supabase if project predates this update
 2. Test Mac ↔ Windows collection sync
-3. Snippets library UI
-4. Signed installers + auto-update
+3. Generate updater keys: `npm run generate:updater-keys` (once), commit `memora.key.pub`, add private key to GitHub secret `TAURI_SIGNING_PRIVATE_KEY`
+4. Tag a release (`git tag v0.1.0 && git push origin v0.1.0`) to trigger signed builds via GitHub Actions
 
 ## Supabase Setup
 

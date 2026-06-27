@@ -10,6 +10,8 @@ import {
   Sun,
   Trash2,
   FolderOpen,
+  Download,
+  Info,
 } from "lucide-react";
 import {
   authLogin,
@@ -22,6 +24,7 @@ import {
   setHistoryRetention,
   setThemePreference,
 } from "@/lib/api";
+import { checkForUpdates, getAppVersion } from "@/lib/updater";
 import { applyTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 import { CollectionsSettings } from "@/components/settings/CollectionsSettings";
@@ -47,7 +50,7 @@ const THEME_OPTIONS: { value: ThemePreference; label: string; icon: typeof Sun }
   { value: "dark", label: "Dark", icon: Moon },
 ];
 
-type SettingsSection = "account" | "devices" | "retention" | "collections" | "appearance";
+type SettingsSection = "account" | "devices" | "retention" | "collections" | "appearance" | "about";
 
 const NAV: { id: SettingsSection; label: string; icon: typeof Cloud }[] = [
   { id: "account", label: "Account & Sync", icon: Cloud },
@@ -55,6 +58,7 @@ const NAV: { id: SettingsSection; label: string; icon: typeof Cloud }[] = [
   { id: "retention", label: "History", icon: Trash2 },
   { id: "collections", label: "Collections", icon: FolderOpen },
   { id: "appearance", label: "Appearance", icon: Palette },
+  { id: "about", label: "About", icon: Info },
 ];
 
 export function SettingsPanel() {
@@ -69,6 +73,13 @@ export function SettingsPanel() {
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
+  const [appVersion, setAppVersion] = useState<string | null>(null);
+  const [updateMessage, setUpdateMessage] = useState<string | null>(null);
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
+
+  useEffect(() => {
+    void getAppVersion().then(setAppVersion).catch(() => setAppVersion(null));
+  }, []);
 
   const refresh = async () => {
     const [sync, devs, settings, cols] = await Promise.all([
@@ -141,6 +152,20 @@ export function SettingsPanel() {
       setError(String(err));
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleCheckForUpdates = async () => {
+    setCheckingUpdate(true);
+    setUpdateMessage(null);
+    setError(null);
+    try {
+      const result = await checkForUpdates(true);
+      setUpdateMessage(result.message);
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setCheckingUpdate(false);
     }
   };
 
@@ -395,6 +420,46 @@ export function SettingsPanel() {
                   );
                 })}
               </div>
+            </div>
+          )}
+
+          {section === "about" && (
+            <div className="space-y-6">
+              <div>
+                <h2 className="text-base font-semibold">About Memora</h2>
+                <p className="mt-1 text-sm text-muted">
+                  Your personal cross-device memory for clipboard history and snippets.
+                </p>
+              </div>
+              <div className="rounded-xl border border-border/60 bg-surface-elevated/50 p-4">
+                <p className="text-xs font-medium uppercase tracking-wide text-muted">Version</p>
+                <p className="mt-1 text-sm font-medium">{appVersion ?? "…"}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => void handleCheckForUpdates()}
+                disabled={checkingUpdate}
+                className="flex w-full items-center justify-center gap-2 rounded-xl border border-border/60 bg-surface-elevated/50 py-2.5 text-sm font-medium transition-colors hover:bg-surface-elevated disabled:opacity-50"
+              >
+                {checkingUpdate ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Download className="h-4 w-4" />
+                )}
+                {checkingUpdate ? "Checking…" : "Check for updates"}
+              </button>
+              {updateMessage && (
+                <p
+                  className={cn(
+                    "text-center text-xs",
+                    updateMessage.includes("latest") || updateMessage.includes("Restarting")
+                      ? "text-green-600 dark:text-green-400"
+                      : "text-muted",
+                  )}
+                >
+                  {updateMessage}
+                </p>
+              )}
             </div>
           )}
 

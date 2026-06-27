@@ -654,6 +654,139 @@ impl Database {
         rows.collect()
     }
 
+    pub fn create_snippet(
+        &self,
+        device_id: &str,
+        title: &str,
+        text: &str,
+        trigger: Option<&str>,
+    ) -> Result<ItemRecord, rusqlite::Error> {
+        let trimmed_title = title.trim();
+        let trimmed_text = text.trim();
+        if trimmed_title.is_empty() || trimmed_text.is_empty() {
+            return Err(rusqlite::Error::InvalidParameterName("title/text".into()));
+        }
+
+        let content_hash =
+            crate::clipboard::hash_content("text", Some(trimmed_text), None);
+        let id = Uuid::new_v4().to_string();
+        let now = Utc::now().to_rfc3339();
+        let preview = truncate_preview(trimmed_text);
+        let char_count = trimmed_text.chars().count() as i64;
+        let trigger_val = trigger
+            .map(str::trim)
+            .filter(|t| !t.is_empty())
+            .map(String::from);
+
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO items (
+                id, kind, content_type, display_title, preview_text, char_count,
+                url, url_title, url_domain, code_language, line_count,
+                blob_path, blob_size, thumbnail_path, content_hash, plain_text,
+                trigger, source_device_id, sync_status, created_at, updated_at
+            ) VALUES (?1,'snippet','text',?2,?3,?4,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,?5,?6,?7,?8,'pending',?9,?9)",
+            params![
+                id,
+                trimmed_title,
+                preview,
+                char_count,
+                content_hash,
+                trimmed_text,
+                trigger_val,
+                device_id,
+                now,
+            ],
+        )?;
+
+        conn.execute(
+            "INSERT INTO items_fts (id, display_title, preview_text, url_domain, tags, trigger)
+             VALUES (?1, ?2, ?3, NULL, '', ?4)",
+            params![id, trimmed_title, preview, trigger_val.as_deref()],
+        )?;
+
+        self.enqueue_sync(&conn, "create", "item", &id)?;
+        drop(conn);
+        self.get_item(&id)
+    }
+
+    pub fn update_snippet(
+        &self,
+        id: &str,
+        title: &str,
+        text: &str,
+        trigger: Option<&str>,
+    ) -> Result<ItemRecord, rusqlite::Error> {
+        let trimmed_title = title.trim();
+        let trimmed_text = text.trim();
+        if trimmed_title.is_empty() || trimmed_text.is_empty() {
+            return Err(rusqlite::Error::InvalidParameterName("title/text".into()));
+        }
+
+        let item = self.get_item(id)?;
+        if item.kind != "snippet" {
+            return Err(rusqlite::Error::InvalidParameterName("not a snippet".into()));
+        }
+        if item.deleted_at.is_some() {
+            return Err(rusqlite::Error::InvalidParameterName("deleted".into()));
+        }
+
+        let content_hash =
+            crate::clipboard::hash_content("text", Some(trimmed_text), None);
+        let now = Utc::now().to_rfc3339();
+        let preview = truncate_preview(trimmed_text);
+        let char_count = trimmed_text.chars().count() as i64;
+        let trigger_val = trigger
+            .map(str::trim)
+            .filter(|t| !t.is_empty())
+            .map(String::from);
+
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE items SET
+                display_title = ?1, plain_text = ?2, preview_text = ?3, char_count = ?4,
+                content_hash = ?5, trigger = ?6, updated_at = ?7, sync_status = 'pending'
+             WHERE id = ?8",
+            params![
+                trimmed_title,
+                trimmed_text,
+                preview,
+                char_count,
+                content_hash,
+                trigger_val,
+                now,
+                id,
+            ],
+        )?;
+        conn.execute(
+            "UPDATE items_fts SET display_title = ?1, preview_text = ?2, trigger = ?3 WHERE id = ?4",
+            params![trimmed_title, preview, trigger_val.as_deref(), id],
+        )?;
+        self.enqueue_sync(&conn, "update", "item", id)?;
+        drop(conn);
+        self.get_item(id)
+    }
+
+    pub fn save_item_as_snippet(&self, id: &str) -> Result<ItemRecord, rusqlite::Error> {
+        let item = self.get_item(id)?;
+        if item.kind == "snippet" {
+            return Err(rusqlite::Error::InvalidParameterName("already snippet".into()));
+        }
+        if item.deleted_at.is_some() {
+            return Err(rusqlite::Error::InvalidParameterName("deleted".into()));
+        }
+
+        let now = Utc::now().to_rfc3339();
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE items SET kind = 'snippet', updated_at = ?1, sync_status = 'pending' WHERE id = ?2",
+            params![now, id],
+        )?;
+        self.enqueue_sync(&conn, "update", "item", id)?;
+        drop(conn);
+        self.get_item(id)
+    }
+
     pub fn create_collection(&self, name: &str, color: &str) -> Result<CollectionDto, rusqlite::Error> {
         let trimmed = name.trim();
         if trimmed.is_empty() {

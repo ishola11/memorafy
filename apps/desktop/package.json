@@ -13,6 +13,8 @@
     "@memora/shared-types": "*",
     "@tauri-apps/api": "^2.2.0",
     "@tauri-apps/plugin-global-shortcut": "^2.2.0",
+    "@tauri-apps/plugin-process": "^2.2.0",
+    "@tauri-apps/plugin-updater": "^2.2.0",
     "clsx": "^2.1.1",
     "lucide-react": "^0.469.0",
     "react": "^19.0.0",

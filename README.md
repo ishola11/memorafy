@@ -92,9 +92,17 @@ See [PROGRESS.md](./PROGRESS.md) for implementation checklist.
 - [x] Collections (local)
 - [x] Device management (local)
 - [x] Offline sync queue (stub — Supabase Phase 2)
-- [ ] Supabase cloud sync
-- [ ] Snippets CRUD UI
-- [ ] Auto-update + signed installers
+- [x] Supabase cloud sync
+- [x] Snippets CRUD UI
+- [x] Auto-update + signed installers (GitHub Releases + Tauri updater)
+
+## Releases
+
+1. **One-time:** `npm run generate:updater-keys` — creates minisign keypair; commit `apps/desktop/src-tauri/keys/memora.key.pub`
+2. **GitHub secret:** paste `memora.key` contents into `TAURI_SIGNING_PRIVATE_KEY`
+3. **Optional macOS code signing:** `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID`
+4. **Ship:** `git tag v0.1.0 && git push origin v0.1.0` — builds Windows + macOS installers and `latest.json` for in-app updates
+5. **In-app:** Settings → About → Check for updates
 
 ## License
 

@@ -4,6 +4,7 @@ import type {
   ClipItem,
   Collection,
   CreateCollectionInput,
+  CreateSnippetInput,
   DeviceInfo,
   PreviewCard,
   SearchFilters,
@@ -12,6 +13,7 @@ import type {
   TimelineSection,
   AppTab,
   UpdateCollectionInput,
+  UpdateSnippetInput,
 } from "@memora/shared-types";
 
 export async function searchItems(filters: SearchFilters): Promise<PreviewCard[]> {
@@ -57,6 +59,18 @@ export async function deleteItem(id: string): Promise<void> {
 
 export async function renameItem(id: string, title: string): Promise<void> {
   return invoke("rename_item", { id, title });
+}
+
+export async function createSnippet(input: CreateSnippetInput): Promise<ClipItem> {
+  return invoke<ClipItem>("create_snippet", { input });
+}
+
+export async function updateSnippet(input: UpdateSnippetInput): Promise<ClipItem> {
+  return invoke<ClipItem>("update_snippet", { input });
+}
+
+export async function saveItemAsSnippet(id: string): Promise<ClipItem> {
+  return invoke<ClipItem>("save_item_as_snippet", { id });
 }
 
 export async function getCollections(): Promise<Collection[]> {

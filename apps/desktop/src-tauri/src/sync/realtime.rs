@@ -6,23 +6,74 @@ use tokio::time::{interval, Duration as TokioDuration};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
 use super::client::{CloudCollection, CloudItem, CloudItemCollection};
-use super::SyncEngine;
+use super::{EnsureSessionError, SyncEngine};
 
-pub async fn run_realtime_loop(engine: Arc<SyncEngine>) {
-    loop {
-        if super::auth::load_session(engine.db()).ok().flatten().is_none() {
-            tokio::time::sleep(Duration::from_secs(5)).await;
-            continue;
+const IDLE_POLL: Duration = Duration::from_secs(5);
+const MIN_RECONNECT: Duration = Duration::from_secs(5);
+const MAX_RECONNECT: Duration = Duration::from_secs(60);
+
+enum RealtimeFailure {
+    AuthExpired,
+    NotLoggedIn,
+    Transient(String),
+}
+
+impl From<EnsureSessionError> for RealtimeFailure {
+    fn from(err: EnsureSessionError) -> Self {
+        match err {
+            EnsureSessionError::AuthExpired => RealtimeFailure::AuthExpired,
+            EnsureSessionError::NotLoggedIn => RealtimeFailure::NotLoggedIn,
+            EnsureSessionError::NotConfigured => {
+                RealtimeFailure::Transient("Supabase not configured".to_string())
+            }
+            EnsureSessionError::Transient(msg) => RealtimeFailure::Transient(msg),
         }
-        if let Err(e) = run_session(engine.clone()).await {
-            tracing::warn!("realtime disconnected: {e}");
-        }
-        tokio::time::sleep(Duration::from_secs(5)).await;
     }
 }
 
-async fn run_session(engine: Arc<SyncEngine>) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let config = engine.config().ok_or("not configured")?.clone();
+pub async fn run_realtime_loop(engine: Arc<SyncEngine>) {
+    let mut reconnect_delay = MIN_RECONNECT;
+    let mut auth_notice_logged = false;
+
+    loop {
+        if super::auth::load_session(engine.db()).ok().flatten().is_none() {
+            reconnect_delay = MIN_RECONNECT;
+            auth_notice_logged = false;
+            tokio::time::sleep(IDLE_POLL).await;
+            continue;
+        }
+
+        match run_session(engine.clone()).await {
+            Ok(()) => {
+                reconnect_delay = MIN_RECONNECT;
+                tracing::debug!("realtime session ended");
+            }
+            Err(failure) => match failure {
+                RealtimeFailure::AuthExpired => {
+                    if !auth_notice_logged {
+                        tracing::warn!(
+                            "realtime stopped: session expired — sign in again to resume live sync"
+                        );
+                        auth_notice_logged = true;
+                    }
+                    reconnect_delay = MAX_RECONNECT;
+                }
+                RealtimeFailure::NotLoggedIn => {
+                    reconnect_delay = MIN_RECONNECT;
+                }
+                RealtimeFailure::Transient(msg) => {
+                    tracing::warn!("realtime disconnected: {msg}");
+                    reconnect_delay = (reconnect_delay * 2).min(MAX_RECONNECT);
+                }
+            },
+        }
+
+        tokio::time::sleep(reconnect_delay).await;
+    }
+}
+
+async fn run_session(engine: Arc<SyncEngine>) -> Result<(), RealtimeFailure> {
+    let config = engine.config().ok_or(EnsureSessionError::NotConfigured)?;
     let session = super::ensure_session(&engine).await?;
 
     let ws_url = format!(
@@ -31,7 +82,9 @@ async fn run_session(engine: Arc<SyncEngine>) -> Result<(), Box<dyn std::error::
         urlencoding::encode(&config.anon_key)
     );
 
-    let (ws, _) = connect_async(&ws_url).await?;
+    let (ws, _) = connect_async(&ws_url)
+        .await
+        .map_err(|e| RealtimeFailure::Transient(e.to_string()))?;
     let (mut write, mut read) = ws.split();
 
     let join = serde_json::json!({
@@ -63,7 +116,10 @@ async fn run_session(engine: Arc<SyncEngine>) -> Result<(), Box<dyn std::error::
         },
         "ref": "1"
     });
-    write.send(Message::Text(join.to_string().into())).await?;
+    write
+        .send(Message::Text(join.to_string().into()))
+        .await
+        .map_err(|e| RealtimeFailure::Transient(e.to_string()))?;
 
     let mut heartbeat = interval(TokioDuration::from_secs(25));
 
@@ -76,7 +132,10 @@ async fn run_session(engine: Arc<SyncEngine>) -> Result<(), Box<dyn std::error::
                     "payload": {},
                     "ref": "hb"
                 });
-                write.send(Message::Text(ping.to_string().into())).await?;
+                write
+                    .send(Message::Text(ping.to_string().into()))
+                    .await
+                    .map_err(|e| RealtimeFailure::Transient(e.to_string()))?;
             }
             msg = read.next() => {
                 match msg {
@@ -116,7 +175,7 @@ async fn run_session(engine: Arc<SyncEngine>) -> Result<(), Box<dyn std::error::
                         }
                     }
                     Some(Ok(_)) => {}
-                    Some(Err(e)) => return Err(e.into()),
+                    Some(Err(e)) => return Err(RealtimeFailure::Transient(e.to_string())),
                     None => break,
                 }
             }

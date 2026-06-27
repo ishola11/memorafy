@@ -108,20 +108,10 @@ impl SyncEngine {
 
     /// Pull from cloud, push pending changes, and refresh local state.
     pub async fn force_sync_now(&self) -> Result<SyncStateDto, String> {
-        let client = self.client.as_ref().ok_or("Supabase not configured")?;
-        let Some(mut session) = auth::load_session(&self.db).map_err(|e| e.to_string())? else {
-            return Err("Sign in to sync".to_string());
-        };
-
-        if auth::session_expired(&session) {
-            session = client.refresh(&session).await.map_err(|e| e.to_string())?;
-            let email = self
-                .db
-                .get_setting("user_email")
-                .map_err(|e| e.to_string())?
-                .unwrap_or_default();
-            auth::save_session(&self.db, &session, &email).map_err(|e| e.to_string())?;
-        }
+        let session = auth::load_session(&self.db).map_err(|e| e.to_string())?.ok_or("Sign in to sync")?;
+        let session = try_refresh_session(self, session)
+            .await
+            .map_err(ensure_session_error_message)?;
 
         self.bootstrap_after_auth(&session).await?;
         self.sync_tick()
@@ -224,18 +214,16 @@ impl SyncEngine {
             return Ok(());
         };
 
-        let Some(mut session) = auth::load_session(&self.db)? else {
+        let Some(session) = auth::load_session(&self.db)? else {
             return Ok(());
         };
 
-        if auth::session_expired(&session) {
-            session = client.refresh(&session).await?;
-            let email = self
-                .db
-                .get_setting("user_email")?
-                .unwrap_or_default();
-            auth::save_session(&self.db, &session, &email)?;
-        }
+        let session = match try_refresh_session(self, session).await {
+            Ok(session) => session,
+            Err(EnsureSessionError::AuthExpired) => return Ok(()),
+            Err(EnsureSessionError::NotConfigured | EnsureSessionError::NotLoggedIn) => return Ok(()),
+            Err(EnsureSessionError::Transient(e)) => return Err(e.into()),
+        };
 
         // Push order: collections → items → item_collections (cloud FK parents must exist)
         let pending_collections = self.db.list_pending_sync_collections()?;
@@ -556,17 +544,59 @@ impl SyncEngine {
     }
 }
 
-pub async fn ensure_session(engine: &SyncEngine) -> Result<AuthSession, String> {
-    let client = engine.client().ok_or("Supabase not configured")?;
-    let mut session = auth::load_session(engine.db()).map_err(|e| e.to_string())?.ok_or("Not logged in")?;
-    if auth::session_expired(&session) {
-        session = client.refresh(&session).await.map_err(|e| e.to_string())?;
-        let email = engine
-            .db()
-            .get_setting("user_email")
-            .map_err(|e| e.to_string())?
-            .unwrap_or_default();
-        auth::save_session(engine.db(), &session, &email).map_err(|e| e.to_string())?;
+pub enum EnsureSessionError {
+    NotConfigured,
+    NotLoggedIn,
+    AuthExpired,
+    Transient(String),
+}
+
+impl std::fmt::Display for EnsureSessionError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            EnsureSessionError::NotConfigured => write!(f, "Supabase not configured"),
+            EnsureSessionError::NotLoggedIn => write!(f, "Not logged in"),
+            EnsureSessionError::AuthExpired => write!(f, "Session expired — please sign in again"),
+            EnsureSessionError::Transient(msg) => write!(f, "{msg}"),
+        }
     }
-    Ok(session)
+}
+
+fn ensure_session_error_message(err: EnsureSessionError) -> String {
+    err.to_string()
+}
+
+async fn try_refresh_session(
+    engine: &SyncEngine,
+    session: AuthSession,
+) -> Result<AuthSession, EnsureSessionError> {
+    if !auth::session_expired(&session) {
+        return Ok(session);
+    }
+
+    let client = engine.client().ok_or(EnsureSessionError::NotConfigured)?;
+    match client.refresh(&session).await {
+        Ok(new_session) => {
+            let email = engine
+                .db()
+                .get_setting("user_email")
+                .map_err(|e| EnsureSessionError::Transient(e.to_string()))?
+                .unwrap_or_default();
+            auth::save_session(engine.db(), &new_session, &email)
+                .map_err(|e| EnsureSessionError::Transient(e.to_string()))?;
+            Ok(new_session)
+        }
+        Err(auth::RefreshError::InvalidSession) => {
+            let _ = auth::clear_session(engine.db());
+            Err(EnsureSessionError::AuthExpired)
+        }
+        Err(auth::RefreshError::Network(msg)) => Err(EnsureSessionError::Transient(msg)),
+    }
+}
+
+pub async fn ensure_session(engine: &SyncEngine) -> Result<AuthSession, EnsureSessionError> {
+    let session = auth::load_session(engine.db())
+        .map_err(|e| EnsureSessionError::Transient(e.to_string()))?
+        .ok_or(EnsureSessionError::NotLoggedIn)?;
+    try_refresh_session(engine, session).await
 }

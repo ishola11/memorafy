@@ -4,7 +4,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 
 #[cfg(target_os = "macos")]
-use tauri::{ActivationPolicy, AppHandle, Emitter, WebviewWindow};
+use tauri::{ActivationPolicy, AppHandle, Emitter, Manager, WebviewWindow};
 #[cfg(target_os = "macos")]
 use tauri_plugin_nspopover::{AppExt, ToPopoverOptions, WindowExt};
 

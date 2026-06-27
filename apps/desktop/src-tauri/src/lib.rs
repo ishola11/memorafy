@@ -228,18 +228,20 @@ pub fn run() {
                             #[cfg(target_os = "macos")]
                             {
                                 // NSPopover dismisses itself; no manual hide on blur.
-                                return;
                             }
-                            let skip_blur = TRAY_OPENED_AT
-                                .lock()
-                                .as_ref()
-                                .is_some_and(|t| t.elapsed() < TRAY_BLUR_GRACE);
-                            if skip_blur {
-                                return;
-                            }
-                            let _ = app.emit("tray-visibility", false);
-                            if let Some(w) = app.get_webview_window("tray") {
-                                let _ = w.hide();
+                            #[cfg(not(target_os = "macos"))]
+                            {
+                                let skip_blur = TRAY_OPENED_AT
+                                    .lock()
+                                    .as_ref()
+                                    .is_some_and(|t| t.elapsed() < TRAY_BLUR_GRACE);
+                                if skip_blur {
+                                    return;
+                                }
+                                let _ = app.emit("tray-visibility", false);
+                                if let Some(w) = app.get_webview_window("tray") {
+                                    let _ = w.hide();
+                                }
                             }
                         }
                     }

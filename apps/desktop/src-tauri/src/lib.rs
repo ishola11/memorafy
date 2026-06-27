@@ -45,10 +45,6 @@ pub fn run() {
                 .build(),
         )
         .setup(|app| {
-            // Accessory policy must be set early so menubar overlays join all Spaces (macOS).
-            #[cfg(target_os = "macos")]
-            macos_popover::init_menubar_app_policy(app.handle());
-
             let app_data = app.path().app_data_dir().expect("app data dir");
             std::fs::create_dir_all(&app_data).ok();
 
@@ -129,12 +125,6 @@ pub fn run() {
             sync_engine.clone().run_retention_if_due();
             sync_engine.start();
 
-            for label in ["tray", "quick-paste"] {
-                if let Some(window) = app.get_webview_window(label) {
-                    macos_popover::configure_popover_window(&window);
-                }
-            }
-
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -171,6 +161,10 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error building tauri app")
         .run(|app, event| {
+            if matches!(event, RunEvent::Ready) {
+                #[cfg(target_os = "macos")]
+                macos_popover::init_menubar_app_policy(app);
+            }
             if let RunEvent::ExitRequested { api, .. } = &event {
                 api.prevent_exit();
             }

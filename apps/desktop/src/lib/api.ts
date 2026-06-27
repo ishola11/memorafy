@@ -90,6 +90,16 @@ export async function openSettings(): Promise<void> {
   return invoke("open_settings");
 }
 
+export async function getAppSettings(): Promise<import("@memora/shared-types").AppSettings> {
+  return invoke("get_app_settings");
+}
+
+export async function setHistoryRetention(
+  days: import("@memora/shared-types").HistoryRetentionOption,
+): Promise<import("@memora/shared-types").AppSettings> {
+  return invoke("set_history_retention", { days });
+}
+
 export function onSyncTransfer(callback: (transfer: import("@memora/shared-types").SyncTransfer) => void) {
   return listen<import("@memora/shared-types").SyncTransfer>("sync-transfer", (event) => {
     callback(event.payload);

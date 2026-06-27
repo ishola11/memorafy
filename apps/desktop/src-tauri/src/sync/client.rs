@@ -260,6 +260,6 @@ fn item_to_cloud(session: &AuthSession, item: &ItemRecord) -> CloudItem {
         is_favorited: item.is_favorited,
         created_at: item.created_at.clone(),
         updated_at: item.updated_at.clone(),
-        deleted_at: None,
+        deleted_at: item.deleted_at.clone(),
     }
 }

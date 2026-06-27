@@ -27,6 +27,7 @@ pub struct ItemRecord {
     pub sync_status: String,
     pub created_at: String,
     pub updated_at: String,
+    pub deleted_at: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -73,6 +74,15 @@ pub struct CollectionDto {
     pub color: String,
     pub icon: Option<String>,
     pub item_count: i64,
+}
+
+pub const SETTING_HISTORY_RETENTION: &str = "history_retention_days";
+pub const DEFAULT_HISTORY_RETENTION_DAYS: i64 = 30;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppSettingsDto {
+    pub history_retention_days: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

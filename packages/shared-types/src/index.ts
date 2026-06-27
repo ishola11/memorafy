@@ -109,3 +109,9 @@ export interface SyncTransfer {
   sourceDevice: string;
   onlineDevices: string[];
 }
+
+export interface AppSettings {
+  historyRetentionDays: number;
+}
+
+export type HistoryRetentionOption = 0 | 30 | 60 | 90;

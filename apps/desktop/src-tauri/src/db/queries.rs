@@ -57,6 +57,13 @@ impl Database {
                 )?;
             }
         }
+        drop(conn);
+        if self.get_setting(super::models::SETTING_HISTORY_RETENTION)?.is_none() {
+            self.set_setting(
+                super::models::SETTING_HISTORY_RETENTION,
+                &super::models::DEFAULT_HISTORY_RETENTION_DAYS.to_string(),
+            )?;
+        }
         Ok(())
     }
 
@@ -223,7 +230,7 @@ impl Database {
                     i.url, i.url_title, i.url_domain, i.code_language, i.line_count,
                     i.blob_path, i.blob_size, i.thumbnail_path, i.content_hash, i.plain_text,
                     i.trigger, i.source_device_id, d.name, i.is_pinned, i.is_favorited,
-                    i.sync_status, i.created_at, i.updated_at
+                    i.sync_status, i.created_at, i.updated_at, i.deleted_at
              FROM items i
              LEFT JOIN devices d ON d.id = i.source_device_id
              WHERE i.id = ?1 AND i.deleted_at IS NULL",
@@ -239,7 +246,7 @@ impl Database {
                     i.url, i.url_title, i.url_domain, i.code_language, i.line_count,
                     i.blob_path, i.blob_size, i.thumbnail_path, i.content_hash, i.plain_text,
                     i.trigger, i.source_device_id, d.name, i.is_pinned, i.is_favorited,
-                    i.sync_status, i.created_at, i.updated_at
+                    i.sync_status, i.created_at, i.updated_at, i.deleted_at
              FROM items i
              LEFT JOIN devices d ON d.id = i.source_device_id
              WHERE i.deleted_at IS NULL
@@ -259,7 +266,7 @@ impl Database {
                     i.url, i.url_title, i.url_domain, i.code_language, i.line_count,
                     i.blob_path, i.blob_size, i.thumbnail_path, i.content_hash, i.plain_text,
                     i.trigger, i.source_device_id, d.name, i.is_pinned, i.is_favorited,
-                    i.sync_status, i.created_at, i.updated_at
+                    i.sync_status, i.created_at, i.updated_at, i.deleted_at
              FROM items i
              LEFT JOIN devices d ON d.id = i.source_device_id
              WHERE i.deleted_at IS NULL",
@@ -338,15 +345,100 @@ impl Database {
     }
 
     pub fn delete_item(&self, id: &str) -> Result<(), rusqlite::Error> {
+        self.soft_delete_item(id, true)
+    }
+
+    fn soft_delete_item(&self, id: &str, remove_blob: bool) -> Result<(), rusqlite::Error> {
+        let blob_path: Option<String> = if remove_blob {
+            self.conn.lock().unwrap().query_row(
+                "SELECT blob_path FROM items WHERE id = ?1",
+                params![id],
+                |r| r.get(0),
+            ).optional()?.flatten()
+        } else {
+            None
+        };
+
         let now = Utc::now().to_rfc3339();
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "UPDATE items SET deleted_at = ?1, sync_status = 'pending' WHERE id = ?2",
+            "UPDATE items SET deleted_at = ?1, updated_at = ?1, sync_status = 'pending' WHERE id = ?2 AND deleted_at IS NULL",
             params![now, id],
         )?;
         conn.execute("DELETE FROM items_fts WHERE id = ?1", params![id])?;
         self.enqueue_sync(&conn, "delete", "item", id)?;
+        drop(conn);
+
+        if let Some(path) = blob_path {
+            std::fs::remove_file(path).ok();
+        }
         Ok(())
+    }
+
+    pub fn apply_remote_deletion(&self, id: &str, deleted_at: &str) -> Result<(), rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE items SET deleted_at = ?1, sync_status = 'synced' WHERE id = ?2 AND deleted_at IS NULL",
+            params![deleted_at, id],
+        )?;
+        conn.execute("DELETE FROM items_fts WHERE id = ?1", params![id])?;
+        Ok(())
+    }
+
+    pub fn get_history_retention_days(&self) -> Result<i64, rusqlite::Error> {
+        match self.get_setting(super::models::SETTING_HISTORY_RETENTION)? {
+            Some(v) => Ok(v.parse().unwrap_or(super::models::DEFAULT_HISTORY_RETENTION_DAYS)),
+            None => Ok(super::models::DEFAULT_HISTORY_RETENTION_DAYS),
+        }
+    }
+
+    pub fn set_history_retention_days(&self, days: i64) -> Result<(), rusqlite::Error> {
+        if ![0, 30, 60, 90].contains(&days) {
+            return Err(rusqlite::Error::InvalidParameterName(
+                "history_retention_days".into(),
+            ));
+        }
+        self.set_setting(super::models::SETTING_HISTORY_RETENTION, &days.to_string())
+    }
+
+    pub fn get_app_settings(&self) -> Result<super::models::AppSettingsDto, rusqlite::Error> {
+        Ok(super::models::AppSettingsDto {
+            history_retention_days: self.get_history_retention_days()?,
+        })
+    }
+
+    /// Soft-delete expired history clips. Keeps pinned, favorited, snippets, and collection items.
+    pub fn purge_expired_history(&self) -> Result<u32, rusqlite::Error> {
+        let days = self.get_history_retention_days()?;
+        if days <= 0 {
+            return Ok(0);
+        }
+
+        let cutoff = format!("-{days} days");
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT i.id FROM items i
+             WHERE i.deleted_at IS NULL
+               AND i.kind = 'history'
+               AND i.is_pinned = 0
+               AND i.is_favorited = 0
+               AND i.id NOT IN (SELECT item_id FROM item_collections)
+               AND datetime(i.created_at) < datetime('now', ?1)
+             LIMIT 500",
+        )?;
+        let ids: Vec<String> = stmt
+            .query_map(params![cutoff], |row| row.get(0))?
+            .collect::<Result<Vec<_>, _>>()?;
+        drop(stmt);
+        drop(conn);
+
+        let mut purged = 0u32;
+        for id in ids {
+            if self.soft_delete_item(&id, true).is_ok() {
+                purged += 1;
+            }
+        }
+        Ok(purged)
     }
 
     pub fn rename_item(&self, id: &str, title: &str) -> Result<(), rusqlite::Error> {
@@ -461,10 +553,10 @@ impl Database {
                     i.url, i.url_title, i.url_domain, i.code_language, i.line_count,
                     i.blob_path, i.blob_size, i.thumbnail_path, i.content_hash, i.plain_text,
                     i.trigger, i.source_device_id, d.name, i.is_pinned, i.is_favorited,
-                    i.sync_status, i.created_at, i.updated_at
+                    i.sync_status, i.created_at, i.updated_at, i.deleted_at
              FROM items i
              LEFT JOIN devices d ON d.id = i.source_device_id
-             WHERE i.deleted_at IS NULL AND i.sync_status = 'pending'
+             WHERE i.sync_status = 'pending'
              ORDER BY i.created_at ASC
              LIMIT 50",
         )?;
@@ -623,6 +715,7 @@ fn map_item_row(row: &rusqlite::Row<'_>) -> Result<ItemRecord, rusqlite::Error> 
         sync_status: row.get(21)?,
         created_at: row.get(22)?,
         updated_at: row.get(23)?,
+        deleted_at: row.get(24)?,
     })
 }
 

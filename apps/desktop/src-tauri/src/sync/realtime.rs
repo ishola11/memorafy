@@ -69,15 +69,13 @@ async fn run_session(engine: Arc<SyncEngine>) -> Result<(), Box<dyn std::error::
             msg = read.next() => {
                 match msg {
                     Some(Ok(Message::Text(text))) => {
-                        if let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) {
+                                    if let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) {
                             if value.get("event").and_then(|v| v.as_str()) == Some("postgres_changes") {
                                 if let Some(record) = value
                                     .pointer("/payload/data/record")
                                     .and_then(|r| serde_json::from_value::<CloudItem>(r.clone()).ok())
                                 {
-                                    if record.deleted_at.is_none() {
-                                        let _ = engine.handle_remote_item(record).await;
-                                    }
+                                    let _ = engine.handle_remote_item(record).await;
                                 }
                             }
                         }

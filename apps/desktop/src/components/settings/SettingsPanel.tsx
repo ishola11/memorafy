@@ -1,20 +1,41 @@
 import { useEffect, useState } from "react";
-import { Cloud, CloudOff, Loader2, LogOut } from "lucide-react";
-import { authLogin, authLogout, getDevices, getSyncState, openSettings } from "@/lib/api";
-import type { DeviceInfo, SyncState } from "@memora/shared-types";
+import { Cloud, CloudOff, Loader2, LogOut, Trash2 } from "lucide-react";
+import {
+  authLogin,
+  authLogout,
+  getAppSettings,
+  getDevices,
+  getSyncState,
+  openSettings,
+  setHistoryRetention,
+} from "@/lib/api";
+import type { AppSettings, DeviceInfo, HistoryRetentionOption, SyncState } from "@memora/shared-types";
+
+const RETENTION_OPTIONS: { value: HistoryRetentionOption; label: string }[] = [
+  { value: 0, label: "Never delete" },
+  { value: 30, label: "30 days" },
+  { value: 60, label: "60 days" },
+  { value: 90, label: "90 days" },
+];
 
 export function SettingsPanel() {
   const [state, setState] = useState<SyncState | null>(null);
   const [devices, setDevices] = useState<DeviceInfo[]>([]);
+  const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = async () => {
-    const [sync, devs] = await Promise.all([getSyncState(), getDevices()]);
+    const [sync, devs, settings] = await Promise.all([
+      getSyncState(),
+      getDevices(),
+      getAppSettings(),
+    ]);
     setState(sync);
     setDevices(devs);
+    setAppSettings(settings);
     if (sync.userEmail) setEmail(sync.userEmail);
   };
 
@@ -45,6 +66,19 @@ export function SettingsPanel() {
       setState(sync);
       setPassword("");
       setDevices([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRetentionChange = async (days: HistoryRetentionOption) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const settings = await setHistoryRetention(days);
+      setAppSettings(settings);
+    } catch (err) {
+      setError(String(err));
     } finally {
       setLoading(false);
     }
@@ -165,6 +199,37 @@ export function SettingsPanel() {
               Sign in to sync
             </button>
           </form>
+        )}
+
+        <div className="mt-6 rounded-xl border border-white/10 bg-zinc-900/60 p-4">
+          <div className="mb-3 flex items-center gap-2">
+            <Trash2 className="h-4 w-4 text-zinc-500" />
+            <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+              History retention
+            </p>
+          </div>
+          <p className="mb-3 text-xs leading-relaxed text-zinc-500">
+            Auto-remove old clipboard history to save space. Pinned, favorited, snippets, and items
+            in collections are always kept. When signed in, deletions sync across your devices.
+          </p>
+          <select
+            value={appSettings?.historyRetentionDays ?? 30}
+            disabled={loading}
+            onChange={(e) =>
+              void handleRetentionChange(Number(e.target.value) as HistoryRetentionOption)
+            }
+            className="w-full rounded-xl border border-white/10 bg-zinc-950 px-3 py-2.5 text-sm outline-none focus:border-indigo-500/50"
+          >
+            {RETENTION_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {error && state.loggedIn && (
+          <p className="mt-4 text-sm text-red-400">{error}</p>
         )}
       </div>
     </div>

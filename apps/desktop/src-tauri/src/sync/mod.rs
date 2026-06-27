@@ -24,6 +24,7 @@ pub struct SyncEngine {
     config: Option<SyncConfig>,
     client: Option<client::SupabaseClient>,
     last_presence: Mutex<Option<Instant>>,
+    last_retention_purge: Mutex<Option<Instant>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -62,6 +63,7 @@ impl SyncEngine {
             config,
             client,
             last_presence: Mutex::new(None),
+            last_retention_purge: Mutex::new(None),
         }
     }
 
@@ -122,6 +124,7 @@ impl SyncEngine {
                 }
 
                 loop {
+                    engine.run_retention_if_due();
                     if let Err(e) = engine.sync_tick().await {
                         tracing::debug!("sync tick: {e}");
                     }
@@ -196,10 +199,15 @@ impl SyncEngine {
 
         let pending = self.db.list_pending_sync_items()?;
         for item in pending {
+            let is_deletion = item.deleted_at.is_some();
             match client.upsert_item(&session, &item).await {
                 Ok(()) => {
                     self.db.mark_synced(&item.id)?;
                     self.db.set_setting("last_sync_at", &chrono::Utc::now().to_rfc3339())?;
+
+                    if is_deletion {
+                        continue;
+                    }
 
                     let online: Vec<String> = self
                         .db
@@ -252,6 +260,15 @@ impl SyncEngine {
         &self,
         record: client::CloudItem,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if record.deleted_at.is_some() {
+            self.db
+                .apply_remote_deletion(&record.id, record.deleted_at.as_deref().unwrap_or(""))?;
+            self.db
+                .set_setting("last_sync_at", &chrono::Utc::now().to_rfc3339())?;
+            let _ = self.app.emit("items-updated", ());
+            return Ok(());
+        }
+
         let local_device = self.db.get_setting("local_device_id")?;
         if record.source_device_id.as_deref() == local_device.as_deref() {
             if self.db.item_exists(&record.id)? {
@@ -320,6 +337,36 @@ impl SyncEngine {
                     .map(|d| d.name)
             })
             .unwrap_or_else(|| "Another device".to_string())
+    }
+
+    pub fn run_retention_if_due(&self) {
+        let mut last = self.last_retention_purge.lock();
+        let due = last
+            .map(|t| t.elapsed() > Duration::from_secs(3600))
+            .unwrap_or(true);
+        if !due {
+            return;
+        }
+        *last = Some(Instant::now());
+        drop(last);
+
+        match self.db.purge_expired_history() {
+            Ok(0) => {}
+            Ok(n) => {
+                tracing::info!("retention purge: removed {n} expired history items");
+                let _ = self.app.emit("items-updated", ());
+            }
+            Err(e) => tracing::warn!("retention purge: {e}"),
+        }
+    }
+
+    pub fn run_retention_now(&self) -> Result<u32, String> {
+        let purged = self.db.purge_expired_history().map_err(|e| e.to_string())?;
+        if purged > 0 {
+            let _ = self.app.emit("items-updated", ());
+        }
+        *self.last_retention_purge.lock() = Some(Instant::now());
+        Ok(purged)
     }
 
     pub fn config(&self) -> Option<&SyncConfig> {

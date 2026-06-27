@@ -110,6 +110,7 @@ pub fn run() {
             clipboard::start_watcher(handle);
 
             // Start sync engine
+            sync_engine.clone().run_retention_if_due();
             sync_engine.start();
 
             Ok(())
@@ -130,6 +131,8 @@ pub fn run() {
             commands::get_sync_state,
             commands::auth_login,
             commands::auth_logout,
+            commands::get_app_settings,
+            commands::set_history_retention,
             commands::open_settings,
         ])
         .build(tauri::generate_context!())

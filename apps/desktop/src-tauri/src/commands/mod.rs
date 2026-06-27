@@ -123,6 +123,27 @@ pub fn auth_logout(state: State<'_, AppState>) -> Result<crate::sync::SyncStateD
 }
 
 #[tauri::command]
+pub fn get_app_settings(state: State<'_, AppState>) -> Result<crate::db::AppSettingsDto, String> {
+    state.db.get_app_settings().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn set_history_retention(
+    state: State<'_, AppState>,
+    days: i64,
+) -> Result<crate::db::AppSettingsDto, String> {
+    state
+        .db
+        .set_history_retention_days(days)
+        .map_err(|e| e.to_string())?;
+    let purged = state.sync_engine.run_retention_now()?;
+    if purged > 0 {
+        tracing::info!("retention setting change removed {purged} items");
+    }
+    state.db.get_app_settings().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub fn open_settings(app: AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("settings") {
         window.show().map_err(|e| e.to_string())?;

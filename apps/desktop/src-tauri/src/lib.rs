@@ -74,12 +74,21 @@ fn app_builder() -> tauri::Builder<tauri::Wry> {
         )
 }
 
-fn updater_pubkey() -> Option<String> {
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("keys/memora.key.pub");
-    std::fs::read_to_string(path)
-        .ok()
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
+mod embedded {
+    include!(concat!(env!("OUT_DIR"), "/embedded_config.rs"));
+}
+
+fn init_updater_plugin(app: &tauri::AppHandle) -> tauri::Result<()> {
+    let Some(pubkey) = embedded::UPDATER_PUBKEY else {
+        tracing::warn!("updater: no public key embedded at build time");
+        return Ok(());
+    };
+
+    app.plugin(
+        tauri_plugin_updater::Builder::new()
+            .pubkey(pubkey)
+            .build(),
+    )
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -91,13 +100,7 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             macos_popover::init_menubar_app_policy(app.handle());
 
-            if let Some(pubkey) = updater_pubkey() {
-                app.handle().plugin(
-                    tauri_plugin_updater::Builder::new()
-                        .pubkey(pubkey)
-                        .build(),
-                )?;
-            }
+            init_updater_plugin(app.handle())?;
 
             let app_data = app.path().app_data_dir().expect("app data dir");
             std::fs::create_dir_all(&app_data).ok();

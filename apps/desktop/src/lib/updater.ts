@@ -37,10 +37,15 @@ export async function checkForUpdates(install = true): Promise<UpdateCheckResult
     };
   } catch (err) {
     const message = String(err);
-    if (message.includes("Could not fetch") || message.includes("pubkey")) {
+    if (
+      message.includes("not found") ||
+      message.includes("Could not fetch") ||
+      message.includes("pubkey")
+    ) {
       return {
         status: "unavailable",
-        message: "Updates aren't configured yet. Install a release build to receive updates.",
+        message:
+          "Updates are unavailable in this build. Install a GitHub release build (not dev mode).",
       };
     }
     return { status: "error", message };

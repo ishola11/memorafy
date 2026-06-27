@@ -9,7 +9,7 @@ export function ActionToast() {
   const isError = kind === "error";
 
   return (
-    <div className="pointer-events-none fixed bottom-4 left-4 z-[110] animate-in fade-in slide-in-from-bottom-2">
+    <div className="pointer-events-none fixed bottom-6 left-6 z-[110] animate-in fade-in slide-in-from-bottom-2">
       <div
         className={`flex items-center gap-2 rounded-lg border px-3 py-2 shadow-lg backdrop-blur-xl ${
           isError

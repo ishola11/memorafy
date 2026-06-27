@@ -56,7 +56,7 @@ body {
 
 @layer components {
   .panel-shell {
-    @apply flex h-screen w-full flex-col overflow-hidden bg-surface text-zinc-900 dark:text-zinc-100;
+    @apply flex h-full w-full flex-col overflow-hidden bg-surface text-zinc-900 dark:text-zinc-100;
   }
 
   .panel-header {

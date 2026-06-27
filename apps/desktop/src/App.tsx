@@ -87,7 +87,7 @@ export default function App() {
 
   if (windowMode === "tray") {
     return (
-      <TrayShell>
+      <TrayShell className="box-border p-3">
         <TrayPanel />
         <ActionToast />
         <SyncToast />

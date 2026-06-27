@@ -107,7 +107,14 @@ export function TrayPanel() {
         : "Select a collection above, or add clips via the folder icon on any card.";
 
   return (
-    <div className="panel-shell w-[400px] shadow-[var(--panel-shadow)]">
+    <div
+      className={cn(
+        "panel-shell shadow-[var(--panel-shadow)]",
+        isTrayWindow
+          ? "rounded-xl border border-border/50"
+          : "w-[400px]",
+      )}
+    >
       <header className="panel-header px-4 pb-0 pt-3">
         <div className="mb-3 flex items-center justify-between">
           <div className="flex items-center gap-2">

@@ -78,7 +78,8 @@ pub fn run() {
                 device_id: device_id.clone(),
             });
 
-            // System tray
+            // System tray — macOS uses native menu on left-click (Parallel/Paste style);
+            // Windows keeps the custom sidebar panel on left-click.
             let show_i = MenuItem::with_id(app, "show", "Open Memora", true, None::<&str>)?;
             let quick_i =
                 MenuItem::with_id(app, "quick", "Quick Paste", true, None::<&str>)?;
@@ -87,12 +88,25 @@ pub fn run() {
             let quit_i = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&show_i, &quick_i, &settings_i, &quit_i])?;
 
-            let _tray = TrayIconBuilder::new()
+            let mut tray_builder = TrayIconBuilder::new()
                 .icon(app.default_window_icon().unwrap().clone())
-                .menu(&menu)
-                .show_menu_on_left_click(false)
+                .menu(&menu);
+
+            #[cfg(target_os = "macos")]
+            {
+                tray_builder = tray_builder
+                    .icon_as_template(true)
+                    .show_menu_on_left_click(true);
+            }
+
+            #[cfg(not(target_os = "macos"))]
+            {
+                tray_builder = tray_builder.show_menu_on_left_click(false);
+            }
+
+            let _tray = tray_builder
                 .on_menu_event(|app, event| match event.id.as_ref() {
-                    "show" => toggle_tray_window(app, true, None),
+                    "show" => open_memora(app),
                     "quick" => toggle_quick_paste(app, true),
                     "settings" => {
                         let _ = commands::open_settings(app.clone());
@@ -101,6 +115,7 @@ pub fn run() {
                     _ => {}
                 })
                 .on_tray_icon_event(|tray, event| {
+                    #[cfg(not(target_os = "macos"))]
                     if let TrayIconEvent::Click {
                         button: MouseButton::Left,
                         button_state: MouseButtonState::Up,
@@ -212,11 +227,21 @@ pub fn run() {
         });
 }
 
+/// Primary entry from tray menu — Quick Paste on macOS, sidebar panel on Windows.
+fn open_memora(app: &tauri::AppHandle) {
+    #[cfg(target_os = "macos")]
+    toggle_quick_paste(app, true);
+
+    #[cfg(not(target_os = "macos"))]
+    toggle_tray_window(app, true, None);
+}
+
 fn toggle_quick_paste(app: &tauri::AppHandle, show: bool) {
     if let Some(window) = app.get_webview_window("quick-paste") {
         if show {
             position_quick_paste(&window);
             macos_popover::show_popover_window(app, &window);
+            let _ = window.set_focus();
             let _ = app.emit("quick-paste-visibility", true);
         } else {
             let _ = window.hide();

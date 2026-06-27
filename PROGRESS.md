@@ -61,6 +61,7 @@
 - [x] No `set_focus` on popover show; `orderFrontRegardless` only
 - [x] NSPanel selectors guarded with `respondsToSelector:`
 - [x] **Stability fix** — removed native `msg_send!` AppKit config (NSExceptions abort process); Tauri-only popover show until native NSPopover phase
+- [x] **macOS tray UX** — native menubar menu on left-click; Quick Paste as primary UI (no custom tray webview panel)
 
 ## Next Up
 

@@ -19,9 +19,6 @@
     "core:tray:default",
     "shell:allow-open",
     "global-shortcut:allow-register",
-    "global-shortcut:allow-unregister",
-    "nspopover:allow-show-popover",
-    "nspopover:allow-hide-popover",
-    "nspopover:allow-is-popover-shown"
+    "global-shortcut:allow-unregister"
   ]
 }

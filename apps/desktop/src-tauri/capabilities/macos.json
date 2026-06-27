@@ -1,0 +1,12 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "macos",
+  "description": "macOS-only capabilities (NSPopover plugin)",
+  "platforms": ["macOS"],
+  "windows": ["main", "tray", "quick-paste", "settings"],
+  "permissions": [
+    "nspopover:allow-show-popover",
+    "nspopover:allow-hide-popover",
+    "nspopover:allow-is-popover-shown"
+  ]
+}

@@ -1,7 +1,10 @@
 {
   "app": {
+    "security": {
+      "capabilities": ["default", "macos"]
+    },
     "trayIcon": {
-      "iconPath": "icons/32x32.png",
+      "iconPath": "icons/tray-template.png",
       "iconAsTemplate": true,
       "id": "main",
       "showMenuOnLeftClick": false

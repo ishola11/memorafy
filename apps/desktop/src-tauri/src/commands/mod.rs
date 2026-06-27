@@ -1,4 +1,5 @@
 use tauri::{AppHandle, Emitter, Manager, State};
+use tauri_plugin_autostart::ManagerExt;
 
 use crate::clipboard::write_clipboard;
 use crate::db::{item_to_preview, PreviewCardDto, SearchFiltersDto, TabFiltersDto, TimelineSectionDto};
@@ -293,12 +294,73 @@ pub async fn force_sync_now(state: State<'_, AppState>) -> Result<crate::sync::S
 }
 
 #[tauri::command]
-pub fn get_app_settings(state: State<'_, AppState>) -> Result<crate::db::AppSettingsDto, String> {
-    state.db.get_app_settings().map_err(|e| e.to_string())
+pub fn preview_clear_history(
+    state: State<'_, AppState>,
+) -> Result<crate::db::ClearHistoryPreviewDto, String> {
+    state
+        .db
+        .preview_clear_history()
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn clear_history(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    scope: String,
+    mode: String,
+) -> Result<crate::db::ClearHistoryResultDto, String> {
+    let scope = crate::db::ClearHistoryScope::parse(&scope)
+        .ok_or_else(|| format!("invalid scope: {scope}"))?;
+    let mode = crate::db::ClearHistoryMode::parse(&mode)
+        .ok_or_else(|| format!("invalid mode: {mode}"))?;
+
+    if scope == crate::db::ClearHistoryScope::Everywhere
+        && !state.sync_engine.get_state()?.logged_in
+    {
+        return Err("Sign in to delete history from your cloud account.".into());
+    }
+
+    let result = state
+        .db
+        .clear_history(scope, mode)
+        .map_err(|e| e.to_string())?;
+
+    if scope == crate::db::ClearHistoryScope::Everywhere && result.cleared > 0 {
+        let _ = state.sync_engine.force_sync_now().await;
+    }
+
+    let _ = app.emit("items-updated", ());
+    Ok(result)
+}
+
+#[tauri::command]
+pub fn get_app_settings(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<crate::db::AppSettingsDto, String> {
+    let mut settings = state.db.get_app_settings().map_err(|e| e.to_string())?;
+    settings.launch_at_login = app
+        .autolaunch()
+        .is_enabled()
+        .map_err(|e| e.to_string())?;
+    Ok(settings)
+}
+
+#[tauri::command]
+pub fn set_launch_at_login(app: AppHandle, enabled: bool) -> Result<bool, String> {
+    let autolaunch = app.autolaunch();
+    if enabled {
+        autolaunch.enable().map_err(|e| e.to_string())?;
+    } else {
+        autolaunch.disable().map_err(|e| e.to_string())?;
+    }
+    autolaunch.is_enabled().map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub fn set_history_retention(
+    app: AppHandle,
     state: State<'_, AppState>,
     days: i64,
 ) -> Result<crate::db::AppSettingsDto, String> {
@@ -310,7 +372,7 @@ pub fn set_history_retention(
     if purged > 0 {
         tracing::info!("retention setting change removed {purged} items");
     }
-    state.db.get_app_settings().map_err(|e| e.to_string())
+    get_app_settings(app, state)
 }
 
 #[tauri::command]

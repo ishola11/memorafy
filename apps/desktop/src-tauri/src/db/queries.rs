@@ -8,6 +8,20 @@ use uuid::Uuid;
 use super::models::*;
 use crate::timeline;
 
+fn scope_label(scope: ClearHistoryScope) -> &'static str {
+    match scope {
+        ClearHistoryScope::Local => "local",
+        ClearHistoryScope::Everywhere => "everywhere",
+    }
+}
+
+fn mode_label(mode: ClearHistoryMode) -> &'static str {
+    match mode {
+        ClearHistoryMode::Expired => "expired",
+        ClearHistoryMode::All => "all",
+    }
+}
+
 pub struct Database {
     conn: Mutex<Connection>,
     blobs_dir: PathBuf,
@@ -50,6 +64,10 @@ impl Database {
             "ALTER TABLE collections ADD COLUMN deleted_at TEXT",
             "ALTER TABLE collections ADD COLUMN updated_at TEXT",
             "ALTER TABLE item_collections ADD COLUMN sync_status TEXT NOT NULL DEFAULT 'synced'",
+            "CREATE TABLE IF NOT EXISTS local_hidden_items (
+                item_id TEXT PRIMARY KEY,
+                hidden_at TEXT NOT NULL
+            )",
         ];
         for patch in patches {
             let _ = conn.execute(patch, []);
@@ -496,6 +514,15 @@ impl Database {
     }
 
     fn soft_delete_item(&self, id: &str, remove_blob: bool) -> Result<(), rusqlite::Error> {
+        self.soft_delete_item_with_sync(id, remove_blob, true)
+    }
+
+    fn soft_delete_item_with_sync(
+        &self,
+        id: &str,
+        remove_blob: bool,
+        sync_to_cloud: bool,
+    ) -> Result<(), rusqlite::Error> {
         let blob_path: Option<String> = if remove_blob {
             self.conn.lock().unwrap().query_row(
                 "SELECT blob_path FROM items WHERE id = ?1",
@@ -508,18 +535,176 @@ impl Database {
 
         let now = Utc::now().to_rfc3339();
         let conn = self.conn.lock().unwrap();
-        conn.execute(
-            "UPDATE items SET deleted_at = ?1, updated_at = ?1, sync_status = 'pending' WHERE id = ?2 AND deleted_at IS NULL",
-            params![now, id],
-        )?;
+        if sync_to_cloud {
+            conn.execute(
+                "UPDATE items SET deleted_at = ?1, updated_at = ?1, sync_status = 'pending' WHERE id = ?2 AND deleted_at IS NULL",
+                params![now, id],
+            )?;
+            self.enqueue_sync(&conn, "delete", "item", id)?;
+        } else {
+            let sync_status: String = conn
+                .query_row(
+                    "SELECT sync_status FROM items WHERE id = ?1 AND deleted_at IS NULL",
+                    params![id],
+                    |r| r.get(0),
+                )
+                .optional()?
+                .unwrap_or_else(|| "synced".to_string());
+            conn.execute(
+                "UPDATE items SET deleted_at = ?1, updated_at = ?1, sync_status = 'synced' WHERE id = ?2 AND deleted_at IS NULL",
+                params![now, id],
+            )?;
+            if sync_status == "synced" {
+                conn.execute(
+                    "INSERT OR IGNORE INTO local_hidden_items (item_id, hidden_at) VALUES (?1, ?2)",
+                    params![id, now],
+                )?;
+            }
+        }
         conn.execute("DELETE FROM items_fts WHERE id = ?1", params![id])?;
-        self.enqueue_sync(&conn, "delete", "item", id)?;
         drop(conn);
 
         if let Some(path) = blob_path {
             std::fs::remove_file(path).ok();
         }
         Ok(())
+    }
+
+    fn is_locally_hidden(&self, item_id: &str) -> Result<bool, rusqlite::Error> {
+        let hidden: Option<i64> = self.conn.lock().unwrap().query_row(
+            "SELECT 1 FROM local_hidden_items WHERE item_id = ?1",
+            params![item_id],
+            |r| r.get(0),
+        ).optional()?;
+        Ok(hidden.is_some())
+    }
+
+    const CLEARABLE_HISTORY_BASE: &'static str = "SELECT i.id FROM items i
+             WHERE i.deleted_at IS NULL
+               AND i.kind = 'history'
+               AND i.is_pinned = 0
+               AND i.is_favorited = 0
+               AND i.id NOT IN (SELECT item_id FROM item_collections)";
+
+    fn count_clearable_history(
+        &self,
+        mode: ClearHistoryMode,
+        retention_days: i64,
+    ) -> Result<u32, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let count: i64 = match mode {
+            ClearHistoryMode::All => conn.query_row(
+                &format!("SELECT COUNT(*) FROM ({}) AS clearable", Self::CLEARABLE_HISTORY_BASE),
+                [],
+                |r| r.get(0),
+            )?,
+            ClearHistoryMode::Expired if retention_days <= 0 => 0,
+            ClearHistoryMode::Expired => {
+                let cutoff = format!("-{retention_days} days");
+                conn.query_row(
+                    &format!(
+                        "SELECT COUNT(*) FROM ({base} AND datetime(i.created_at) < datetime('now', ?1)) AS clearable",
+                        base = Self::CLEARABLE_HISTORY_BASE
+                    ),
+                    params![cutoff],
+                    |r| r.get(0),
+                )?
+            }
+        };
+        Ok(count as u32)
+    }
+
+    fn list_clearable_history_ids(
+        &self,
+        mode: ClearHistoryMode,
+        retention_days: i64,
+    ) -> Result<Vec<String>, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        match mode {
+            ClearHistoryMode::All => {
+                let mut stmt = conn.prepare(Self::CLEARABLE_HISTORY_BASE)?;
+                let rows = stmt.query_map([], |row| row.get(0))?;
+                rows.collect()
+            }
+            ClearHistoryMode::Expired if retention_days <= 0 => Ok(vec![]),
+            ClearHistoryMode::Expired => {
+                let cutoff = format!("-{retention_days} days");
+                let sql = format!(
+                    "{} AND datetime(i.created_at) < datetime('now', ?1)",
+                    Self::CLEARABLE_HISTORY_BASE
+                );
+                let mut stmt = conn.prepare(&sql)?;
+                let rows = stmt.query_map(params![cutoff], |row| row.get(0))?;
+                rows.collect()
+            }
+        }
+    }
+
+    pub fn preview_clear_history(&self) -> Result<ClearHistoryPreviewDto, rusqlite::Error> {
+        let retention_days = self.get_history_retention_days()?;
+        let expired_count = if retention_days > 0 {
+            self.count_clearable_history(ClearHistoryMode::Expired, retention_days)?
+        } else {
+            0
+        };
+        let all_count = self.count_clearable_history(ClearHistoryMode::All, retention_days)?;
+        Ok(ClearHistoryPreviewDto {
+            expired_count,
+            all_count,
+            retention_days,
+        })
+    }
+
+    pub fn clear_history(
+        &self,
+        scope: ClearHistoryScope,
+        mode: ClearHistoryMode,
+    ) -> Result<ClearHistoryResultDto, rusqlite::Error> {
+        let retention_days = self.get_history_retention_days()?;
+        if mode == ClearHistoryMode::Expired && retention_days <= 0 {
+            return Ok(ClearHistoryResultDto {
+                cleared: 0,
+                scope: scope_label(scope).to_string(),
+                mode: mode_label(mode).to_string(),
+            });
+        }
+
+        let ids = self.list_clearable_history_ids(mode, retention_days)?;
+        let sync_to_cloud = scope == ClearHistoryScope::Everywhere;
+        let mut cleared = 0u32;
+
+        for id in ids {
+            if self
+                .soft_delete_item_with_sync(&id, true, sync_to_cloud)
+                .is_ok()
+            {
+                if sync_to_cloud {
+                    let _ = self.conn.lock().unwrap().execute(
+                        "DELETE FROM local_hidden_items WHERE item_id = ?1",
+                        params![id],
+                    );
+                }
+                cleared += 1;
+            }
+        }
+
+        Ok(ClearHistoryResultDto {
+            cleared,
+            scope: scope_label(scope).to_string(),
+            mode: mode_label(mode).to_string(),
+        })
+    }
+
+    pub fn purge_expired_history(&self) -> Result<u32, rusqlite::Error> {
+        let result = self.clear_history(ClearHistoryScope::Everywhere, ClearHistoryMode::Expired)?;
+        Ok(result.cleared)
+    }
+
+    /// Remove all history clips. Keeps pinned, favorited, snippets, and collection items.
+    #[allow(dead_code)]
+    pub fn clear_all_history(&self) -> Result<u32, rusqlite::Error> {
+        let result = self.clear_history(ClearHistoryScope::Everywhere, ClearHistoryMode::All)?;
+        Ok(result.cleared)
     }
 
     pub fn apply_remote_deletion(&self, id: &str, deleted_at: &str) -> Result<(), rusqlite::Error> {
@@ -553,6 +738,7 @@ impl Database {
             history_retention_days: self.get_history_retention_days()?,
             clipboard_paused: self.get_clipboard_paused()?,
             theme_preference: self.get_theme_preference()?,
+            launch_at_login: false,
         })
     }
 
@@ -582,40 +768,6 @@ impl Database {
             super::models::SETTING_CLIPBOARD_PAUSED,
             if paused { "1" } else { "0" },
         )
-    }
-
-    /// Soft-delete expired history clips. Keeps pinned, favorited, snippets, and collection items.
-    pub fn purge_expired_history(&self) -> Result<u32, rusqlite::Error> {
-        let days = self.get_history_retention_days()?;
-        if days <= 0 {
-            return Ok(0);
-        }
-
-        let cutoff = format!("-{days} days");
-        let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare(
-            "SELECT i.id FROM items i
-             WHERE i.deleted_at IS NULL
-               AND i.kind = 'history'
-               AND i.is_pinned = 0
-               AND i.is_favorited = 0
-               AND i.id NOT IN (SELECT item_id FROM item_collections)
-               AND datetime(i.created_at) < datetime('now', ?1)
-             LIMIT 500",
-        )?;
-        let ids: Vec<String> = stmt
-            .query_map(params![cutoff], |row| row.get(0))?
-            .collect::<Result<Vec<_>, _>>()?;
-        drop(stmt);
-        drop(conn);
-
-        let mut purged = 0u32;
-        for id in ids {
-            if self.soft_delete_item(&id, true).is_ok() {
-                purged += 1;
-            }
-        }
-        Ok(purged)
     }
 
     pub fn rename_item(&self, id: &str, title: &str) -> Result<(), rusqlite::Error> {
@@ -1189,6 +1341,10 @@ impl Database {
     }
 
     pub fn upsert_remote_item(&self, item: &crate::sync::client::CloudItem) -> Result<(), rusqlite::Error> {
+        if self.is_locally_hidden(&item.id)? {
+            return Ok(());
+        }
+
         if let Some(ref device_id) = item.source_device_id {
             self.ensure_device_exists(device_id)?;
         }

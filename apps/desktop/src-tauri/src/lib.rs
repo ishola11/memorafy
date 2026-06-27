@@ -46,6 +46,12 @@ fn app_builder() -> tauri::Builder<tauri::Wry> {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_process::init())
         .plugin(
+            tauri_plugin_autostart::Builder::new()
+                .app_name("Memora")
+                .macos_launcher(tauri_plugin_autostart::MacosLauncher::LaunchAgent)
+                .build(),
+        )
+        .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, _shortcut, event| {
                     if event.state == ShortcutState::Pressed {
@@ -63,6 +69,11 @@ fn app_builder() -> tauri::Builder<tauri::Wry> {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_process::init())
+        .plugin(
+            tauri_plugin_autostart::Builder::new()
+                .app_name("Memora")
+                .build(),
+        )
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, _shortcut, event| {
@@ -249,6 +260,9 @@ pub fn run() {
             commands::auth_logout,
             commands::get_app_settings,
             commands::set_history_retention,
+            commands::preview_clear_history,
+            commands::clear_history,
+            commands::set_launch_at_login,
             commands::get_clipboard_paused,
             commands::toggle_clipboard_pause,
             commands::get_theme_preference,
@@ -266,12 +280,13 @@ pub fn run() {
                     macos_quick_paste::retry_setup_quick_paste_panel(app);
                 }
             }
-            if let RunEvent::ExitRequested { api, .. } = &event {
-                api.prevent_exit();
-            }
             if let RunEvent::WindowEvent { label, event, .. } = event {
-                if let WindowEvent::CloseRequested { .. } = event {
+                if let WindowEvent::CloseRequested { api, .. } = &event {
                     if label == "settings" {
+                        api.prevent_close();
+                        if let Some(window) = app.get_webview_window(&label) {
+                            let _ = window.hide();
+                        }
                         #[cfg(target_os = "macos")]
                         macos_popover::restore_menubar_app_policy(app);
                     }

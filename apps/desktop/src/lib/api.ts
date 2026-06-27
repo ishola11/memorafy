@@ -173,6 +173,23 @@ export async function setHistoryRetention(
   return invoke("set_history_retention", { days });
 }
 
+export async function previewClearHistory(): Promise<
+  import("@memora/shared-types").ClearHistoryPreview
+> {
+  return invoke("preview_clear_history");
+}
+
+export async function clearHistory(
+  scope: import("@memora/shared-types").ClearHistoryScope,
+  mode: import("@memora/shared-types").ClearHistoryMode,
+): Promise<import("@memora/shared-types").ClearHistoryResult> {
+  return invoke("clear_history", { scope, mode });
+}
+
+export async function setLaunchAtLogin(enabled: boolean): Promise<boolean> {
+  return invoke("set_launch_at_login", { enabled });
+}
+
 export async function getThemePreference(): Promise<ThemePreference> {
   return invoke<ThemePreference>("get_theme_preference");
 }

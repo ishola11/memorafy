@@ -6,6 +6,7 @@ import {
   Monitor,
   Moon,
   Palette,
+  Power,
   RefreshCw,
   Sun,
   Trash2,
@@ -22,11 +23,13 @@ import {
   getDevices,
   getSyncState,
   setHistoryRetention,
+  setLaunchAtLogin,
   setThemePreference,
 } from "@/lib/api";
 import { checkForUpdates, getAppVersion } from "@/lib/updater";
 import { applyTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
+import { ClearHistorySettings } from "@/components/settings/ClearHistorySettings";
 import { CollectionsSettings } from "@/components/settings/CollectionsSettings";
 import type {
   AppSettings,
@@ -50,13 +53,14 @@ const THEME_OPTIONS: { value: ThemePreference; label: string; icon: typeof Sun }
   { value: "dark", label: "Dark", icon: Moon },
 ];
 
-type SettingsSection = "account" | "devices" | "retention" | "collections" | "appearance" | "about";
+type SettingsSection = "account" | "devices" | "retention" | "collections" | "general" | "appearance" | "about";
 
 const NAV: { id: SettingsSection; label: string; icon: typeof Cloud }[] = [
   { id: "account", label: "Account & Sync", icon: Cloud },
   { id: "devices", label: "Devices", icon: Monitor },
   { id: "retention", label: "History", icon: Trash2 },
   { id: "collections", label: "Collections", icon: FolderOpen },
+  { id: "general", label: "General", icon: Power },
   { id: "appearance", label: "Appearance", icon: Palette },
   { id: "about", label: "About", icon: Info },
 ];
@@ -148,6 +152,19 @@ export function SettingsPanel() {
       await setThemePreference(preference);
       applyTheme(preference);
       setAppSettings((prev) => (prev ? { ...prev, themePreference: preference } : prev));
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleLaunchAtLoginChange = async (enabled: boolean) => {
+    setLoading(true);
+    setError(null);
+    try {
+      await setLaunchAtLogin(enabled);
+      setAppSettings((prev) => (prev ? { ...prev, launchAtLogin: enabled } : prev));
     } catch (err) {
       setError(String(err));
     } finally {
@@ -360,28 +377,59 @@ export function SettingsPanel() {
           )}
 
           {section === "retention" && (
+            <div className="space-y-8">
+              <div className="space-y-4">
+                <div>
+                  <h2 className="text-base font-semibold">Auto retention</h2>
+                  <p className="mt-1 text-sm text-muted">
+                    Automatically remove old clipboard history on a schedule. Pinned, favorited,
+                    snippets, and collection items are always kept.
+                  </p>
+                </div>
+                <select
+                  value={appSettings?.historyRetentionDays ?? 30}
+                  disabled={loading}
+                  onChange={(e) =>
+                    void handleRetentionChange(Number(e.target.value) as HistoryRetentionOption)
+                  }
+                  className="w-full rounded-xl border border-border/60 bg-surface px-3 py-2.5 text-sm outline-none focus:border-accent/50"
+                >
+                  {RETENTION_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="border-t border-border/60 pt-8">
+                <ClearHistorySettings
+                  loggedIn={state.loggedIn}
+                  onCleared={() => void refresh()}
+                />
+              </div>
+            </div>
+          )}
+
+          {section === "general" && (
             <div className="space-y-6">
               <div>
-                <h2 className="text-base font-semibold">History retention</h2>
-                <p className="mt-1 text-sm text-muted">
-                  Auto-remove old clipboard history. Pinned, favorited, snippets, and collection
-                  items are always kept.
-                </p>
+                <h2 className="text-base font-semibold">General</h2>
+                <p className="mt-1 text-sm text-muted">Startup and system behavior.</p>
               </div>
-              <select
-                value={appSettings?.historyRetentionDays ?? 30}
-                disabled={loading}
-                onChange={(e) =>
-                  void handleRetentionChange(Number(e.target.value) as HistoryRetentionOption)
-                }
-                className="w-full rounded-xl border border-border/60 bg-surface px-3 py-2.5 text-sm outline-none focus:border-accent/50"
-              >
-                {RETENTION_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
+              <label className="flex cursor-pointer items-center justify-between rounded-xl border border-border/60 bg-surface-elevated/40 px-4 py-3">
+                <div>
+                  <p className="text-sm font-medium">Launch at login</p>
+                  <p className="text-xs text-muted">Start Memora when you sign in to this computer.</p>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={appSettings?.launchAtLogin ?? false}
+                  disabled={loading}
+                  onChange={(e) => void handleLaunchAtLoginChange(e.target.checked)}
+                  className="h-4 w-4 rounded border-border accent-accent"
+                />
+              </label>
             </div>
           )}
 

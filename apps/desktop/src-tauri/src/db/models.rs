@@ -83,12 +83,61 @@ pub const SETTING_THEME_PREFERENCE: &str = "theme_preference";
 pub const DEFAULT_HISTORY_RETENTION_DAYS: i64 = 30;
 pub const DEFAULT_THEME_PREFERENCE: &str = "system";
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClearHistoryMode {
+    Expired,
+    All,
+}
+
+impl ClearHistoryMode {
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "expired" => Some(Self::Expired),
+            "all" => Some(Self::All),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClearHistoryScope {
+    Local,
+    Everywhere,
+}
+
+impl ClearHistoryScope {
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "local" => Some(Self::Local),
+            "everywhere" => Some(Self::Everywhere),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClearHistoryPreviewDto {
+    pub expired_count: u32,
+    pub all_count: u32,
+    pub retention_days: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClearHistoryResultDto {
+    pub cleared: u32,
+    pub scope: String,
+    pub mode: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppSettingsDto {
     pub history_retention_days: i64,
     pub clipboard_paused: bool,
     pub theme_preference: String,
+    pub launch_at_login: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -119,9 +119,25 @@ export interface AppSettings {
   historyRetentionDays: number;
   clipboardPaused: boolean;
   themePreference: ThemePreference;
+  launchAtLogin: boolean;
 }
 
 export type HistoryRetentionOption = 0 | 30 | 60 | 90;
+
+export type ClearHistoryScope = 'local' | 'everywhere';
+export type ClearHistoryMode = 'expired' | 'all';
+
+export interface ClearHistoryPreview {
+  expiredCount: number;
+  allCount: number;
+  retentionDays: number;
+}
+
+export interface ClearHistoryResult {
+  cleared: number;
+  scope: ClearHistoryScope;
+  mode: ClearHistoryMode;
+}
 
 export interface CreateCollectionInput {
   name: string;

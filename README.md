@@ -72,8 +72,7 @@ memora/
 │   ├── src/               # React UI (Quick Paste, Tray)
 │   └── src-tauri/         # Rust core (clipboard, sync, SQLite)
 ├── packages/shared-types/ # Shared TypeScript types
-├── services/migrations/   # Supabase PostgreSQL schema
-└── docs/architecture/     # Architecture docs
+└── services/supabase/     # Supabase schema (CLI migrations, GitHub-integration deployed)
 ```
 
 ## Logs & Diagnostics

@@ -113,11 +113,22 @@
 
 ## Supabase Setup
 
+**Canonical schema:** `services/supabase/migrations/` (CLI-managed, deployed via the
+Supabase GitHub integration). The one-time dashboard setup:
+
 1. Create project at [supabase.com](https://supabase.com)
-2. Run `services/migrations/SETUP_ALL.sql` in SQL editor (new projects)
-3. Existing projects: also run `services/migrations/003_collections_realtime.sql`
-4. Run `services/migrations/002_plain_text_realtime.sql` if not already applied
-5. Run `services/migrations/007_clear_leaked_blob_paths.sql` if you synced image items before v0.1.9 (clears local file paths that were mistakenly pushed to the cloud)
+2. Dashboard → Project Settings → Integrations → GitHub → connect this repository
+3. Set **working directory** to `services/supabase` ([docs](https://supabase.com/docs/guides/deployment/branching/github-integration#set-the-working-directory))
+4. Set the **production branch** to `master` and enable branching if you want PR preview databases
+5. Copy project URL + anon key to `apps/desktop/.env`
+
+Merges to `master` then apply new files in `services/supabase/migrations/`
+automatically; PRs get isolated preview databases.
+
+**Manual fallback (no GitHub integration):** run
+`services/supabase/migrations/20260703000000_baseline.sql` once in the SQL editor —
+it's idempotent and contains the full current schema. The old step-by-step scripts in
+`services/migrations/` are legacy (see the README there).
 5. Create a test user (Authentication → Users → Add user)
 6. Copy project URL + anon key to `apps/desktop/.env`
 

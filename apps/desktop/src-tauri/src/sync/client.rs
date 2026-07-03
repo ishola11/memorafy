@@ -436,7 +436,7 @@ impl SupabaseClient {
         let text = resp.text().await.unwrap_or_default();
         if text.contains("42883") || text.contains("does not exist") {
             return Err(
-                "Device registration is not configured. Run services/migrations/006_devices_rpc_only.sql in Supabase SQL Editor, then update to Memora v0.1.6 or later.".into(),
+                "Device registration is not configured on the server. Apply the schema in services/supabase/migrations (or run the baseline migration in the Supabase SQL Editor).".into(),
             );
         }
         Err(format!("Register device failed: {text}"))

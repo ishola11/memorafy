@@ -282,6 +282,65 @@ impl Database {
         self.get_item(&id)
     }
 
+    pub fn insert_image_item(
+        &self,
+        device_id: &str,
+        blob_path: String,
+        blob_size: i64,
+        thumbnail_path: String,
+        dimensions_label: &str,
+        content_hash: &str,
+    ) -> Result<ItemRecord, rusqlite::Error> {
+        let mut conn = self.conn.lock();
+        let recent: Option<String> = conn
+            .query_row(
+                "SELECT id FROM items WHERE content_hash = ?1
+                 AND deleted_at IS NULL AND datetime(created_at) > datetime('now', '-5 minutes')
+                 LIMIT 1",
+                params![content_hash],
+                |r| r.get(0),
+            )
+            .optional()?;
+        if let Some(id) = recent {
+            drop(conn);
+            return self.get_item(&id);
+        }
+
+        let id = Uuid::new_v4().to_string();
+        let now = Utc::now().to_rfc3339();
+        let display_title = format!("Image {dimensions_label}");
+
+        let tx = conn.transaction()?;
+        tx.execute(
+            "INSERT INTO items (
+                id, kind, content_type, display_title, preview_text, char_count,
+                url, url_title, url_domain, code_language, line_count,
+                blob_path, blob_size, thumbnail_path, content_hash, plain_text,
+                source_device_id, sync_status, created_at, updated_at
+            ) VALUES (?1,'history','image',?2,?3,NULL,NULL,NULL,NULL,NULL,NULL,?4,?5,?6,?7,NULL,?8,'pending',?9,?9)",
+            params![
+                id,
+                display_title,
+                dimensions_label,
+                blob_path,
+                blob_size,
+                thumbnail_path,
+                content_hash,
+                device_id,
+                now,
+            ],
+        )?;
+        tx.execute(
+            "INSERT INTO items_fts (id, display_title, preview_text, url_domain, tags, trigger)
+             VALUES (?1, ?2, ?3, '', '', NULL)",
+            params![id, display_title, dimensions_label],
+        )?;
+        self.enqueue_sync(&tx, "create", "item", &id)?;
+        tx.commit()?;
+        drop(conn);
+        self.get_item(&id)
+    }
+
     fn enqueue_sync(
         &self,
         conn: &Connection,
@@ -1684,7 +1743,13 @@ pub fn item_to_preview(item: &ItemRecord) -> PreviewCardDto {
         .clone()
         .or_else(|| item.preview_text.clone())
         .or_else(|| item.url.clone())
-        .unwrap_or_else(|| "Untitled".to_string());
+        .unwrap_or_else(|| {
+            if item.content_type == "image" {
+                "Image".to_string()
+            } else {
+                "Untitled".to_string()
+            }
+        });
 
     let subtitle = match item.content_type.as_str() {
         "url" => item.url_domain.clone().or(item.url.clone()),
@@ -1693,12 +1758,21 @@ pub fn item_to_preview(item: &ItemRecord) -> PreviewCardDto {
             item.code_language.as_deref().unwrap_or("code"),
             item.line_count.unwrap_or(1)
         )),
-        "image" => Some(format!(
-            "{} KB",
-            item.blob_size.unwrap_or(0) / 1024
-        )),
+        "image" => {
+            let size_kb = item.blob_size.unwrap_or(0) / 1024;
+            Some(if size_kb > 0 {
+                format!("{} · {size_kb} KB", item.preview_text.as_deref().unwrap_or("Image"))
+            } else {
+                item.preview_text.clone().unwrap_or_else(|| "Image".to_string())
+            })
+        }
         _ => item.preview_text.clone(),
     };
+
+    let thumb = item
+        .thumbnail_path
+        .clone()
+        .or_else(|| item.blob_path.clone());
 
     let device = item.source_device_name.as_deref().unwrap_or("Unknown");
     let ago = format_relative(&item.created_at);
@@ -1713,7 +1787,7 @@ pub fn item_to_preview(item: &ItemRecord) -> PreviewCardDto {
         title,
         subtitle,
         meta,
-        thumbnail: item.thumbnail_path.clone(),
+        thumbnail: thumb,
         badges,
         is_pinned: item.is_pinned,
         is_favorited: item.is_favorited,

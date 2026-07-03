@@ -6,6 +6,7 @@ use arboard::Clipboard;
 use tauri::{AppHandle, Emitter, Manager};
 
 use super::content::{classify, hash_content, hash_image, CapturedContent};
+use super::images::{dimensions_label, make_thumbnail_png, save_png};
 use crate::AppState;
 
 /// Watcher polls every 400ms; suppress enough iterations to cover programmatic writes.
@@ -20,9 +21,6 @@ const CLIPBOARD_INIT_RETRY: Duration = Duration::from_secs(5);
 
 pub fn start_watcher(app: AppHandle) {
     thread::spawn(move || {
-        // The clipboard can be transiently unavailable at startup (another
-        // process holding it, session still initializing). Keep retrying —
-        // a clipboard manager with a dead watcher is silently useless.
         let mut clipboard = loop {
             match Clipboard::new() {
                 Ok(c) => break c,
@@ -59,14 +57,36 @@ pub fn start_watcher(app: AppHandle) {
                 }
             }
 
-            // Password managers and the OS's own clipboard history mark
-            // secrets (passwords, 2FA codes) as "concealed" — never record
-            // or sync that content, regardless of what it looks like.
             if super::concealed::clipboard_is_concealed() {
                 continue;
             }
 
-            if let Ok(text) = clipboard.get_text() {
+            let text = clipboard.get_text().ok();
+            let image = clipboard.get_image().ok();
+
+            if let Some(ref img) = image {
+                if should_capture_image(text.as_deref()) {
+                    let hash = hash_image(img.width, img.height, &img.bytes);
+                    if hash == last_hash {
+                        continue;
+                    }
+                    if should_skip_capture(&state, &hash, None) {
+                        last_hash = hash;
+                        continue;
+                    }
+                    last_hash = hash.clone();
+                    if let Err(e) = persist_image(&state, img, &hash) {
+                        tracing::error!("persist image: {e}");
+                    } else {
+                        record_capture(&state, &hash);
+                        let _ = app.emit("items-updated", ());
+                        state.sync_engine.request_sync();
+                    }
+                    continue;
+                }
+            }
+
+            if let Some(text) = text {
                 if text.trim().is_empty() {
                     continue;
                 }
@@ -96,26 +116,38 @@ pub fn start_watcher(app: AppHandle) {
                     let _ = app.emit("items-updated", ());
                     state.sync_engine.request_sync();
                 }
-            } else if let Ok(img) = clipboard.get_image() {
-                let hash = hash_image(img.width, img.height, &img.bytes);
-                if hash == last_hash {
-                    continue;
-                }
-                if should_skip_capture(&state, &hash, None) {
-                    last_hash = hash;
-                    continue;
-                }
-                last_hash = hash.clone();
-                if let Err(e) = persist_image(&state, &img, &hash) {
-                    tracing::error!("persist image: {e}");
-                } else {
-                    record_capture(&state, &hash);
-                    let _ = app.emit("items-updated", ());
-                    state.sync_engine.request_sync();
-                }
             }
         }
     });
+}
+
+/// macOS often puts a filename/path in plain text alongside real image bytes.
+/// Prefer the image when both are present, or when the text is only a filename.
+fn should_capture_image(text: Option<&str>) -> bool {
+    match text.map(str::trim).filter(|t| !t.is_empty()) {
+        None => true,
+        Some(t) if text_looks_like_image_filename(t) => true,
+        #[cfg(target_os = "macos")]
+        Some(_) => true,
+        #[cfg(not(target_os = "macos"))]
+        Some(_) => false,
+    }
+}
+
+fn text_looks_like_image_filename(text: &str) -> bool {
+    if text.contains('\n') || text.len() > 260 {
+        return false;
+    }
+    let lower = text.to_lowercase();
+    lower.ends_with(".png")
+        || lower.ends_with(".jpg")
+        || lower.ends_with(".jpeg")
+        || lower.ends_with(".gif")
+        || lower.ends_with(".webp")
+        || lower.ends_with(".heic")
+        || lower.ends_with(".tif")
+        || lower.ends_with(".tiff")
+        || lower.ends_with(".bmp")
 }
 
 fn record_capture(state: &AppState, hash: &str) {
@@ -154,23 +186,26 @@ fn persist_image(
     image: &arboard::ImageData,
     hash: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    use std::io::Write;
-
-    let filename = format!("{}.png", uuid::Uuid::new_v4());
+    let width = image.width as u32;
+    let height = image.height as u32;
+    let id = uuid::Uuid::new_v4();
+    let filename = format!("{id}.png");
+    let thumb_name = format!("{id}_thumb.png");
     let path = state.db.blobs_dir().join(&filename);
+    let thumb_path = state.db.blobs_dir().join(&thumb_name);
 
-    let mut file = std::fs::File::create(&path)?;
-    file.write_all(&image.bytes)?;
+    save_png(&path, width, height, &image.bytes)?;
+    let thumb_bytes = make_thumbnail_png(width, height, &image.bytes)?;
+    std::fs::write(&thumb_path, thumb_bytes)?;
 
-    let size = image.bytes.len() as i64;
-    state.db.insert_item(
+    let size = std::fs::metadata(&path)?.len() as i64;
+    let label = dimensions_label(width, height);
+    state.db.insert_image_item(
         &state.device_id(),
-        "image",
-        None,
-        None,
-        Some(path.to_string_lossy().to_string()),
-        Some(size),
-        None,
+        path.to_string_lossy().into_owned(),
+        size,
+        thumb_path.to_string_lossy().into_owned(),
+        &label,
         hash,
     )?;
     state.db.touch_device(&state.device_id())?;
@@ -181,10 +216,6 @@ pub fn write_clipboard(state: &AppState, text: &str) -> Result<(), Box<dyn std::
     write_clipboard_internal(state, text, None)
 }
 
-/// Writes an HTML representation with a guaranteed plain-text fallback, so
-/// apps that only read plain text (terminals, code editors) still get the
-/// literal characters while rich targets (email, chat, docs) render the
-/// formatting — e.g. a clickable link for a copied URL.
 pub fn write_clipboard_rich(
     state: &AppState,
     plain_text: &str,
@@ -193,9 +224,35 @@ pub fn write_clipboard_rich(
     write_clipboard_internal(state, plain_text, Some(html))
 }
 
-/// The watcher only ever reads back plain text via `get_text()`, so echo
-/// suppression is keyed off the plain-text hash regardless of whether we
-/// also wrote an HTML variant — that's exactly what the watcher would see.
+pub fn write_clipboard_image(
+    state: &AppState,
+    blob_path: &std::path::Path,
+    dimensions_label: Option<&str>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use std::borrow::Cow;
+
+    let dims = dimensions_label.and_then(super::images::parse_dimensions_label);
+    let decoded = super::images::load_image_blob(blob_path, dims)?;
+    let hash = hash_image(
+        decoded.width as usize,
+        decoded.height as usize,
+        &decoded.rgba,
+    );
+    {
+        let mut suppress = state.suppress_clipboard.lock();
+        *suppress = SUPPRESS_ITERATIONS;
+        *state.last_programmatic_hash.lock() = Some(hash.clone());
+        *state.last_capture.lock() = Some((hash, Instant::now()));
+    }
+    let mut clipboard = Clipboard::new()?;
+    clipboard.set_image(arboard::ImageData {
+        width: decoded.width as usize,
+        height: decoded.height as usize,
+        bytes: Cow::Owned(decoded.rgba),
+    })?;
+    Ok(())
+}
+
 fn write_clipboard_internal(
     state: &AppState,
     plain_text: &str,

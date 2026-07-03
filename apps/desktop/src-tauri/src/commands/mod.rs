@@ -1,7 +1,7 @@
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_autostart::ManagerExt;
 
-use crate::clipboard::{write_clipboard, write_clipboard_rich};
+use crate::clipboard::{write_clipboard, write_clipboard_image, write_clipboard_rich};
 use crate::db::{item_to_preview, PreviewCardDto, SearchFiltersDto, TabFiltersDto, TimelineSectionDto};
 use crate::AppState;
 
@@ -57,8 +57,28 @@ pub fn toggle_clipboard_pause(state: State<'_, AppState>) -> Result<bool, String
 #[tauri::command]
 pub fn copy_item(state: State<'_, AppState>, id: String, plain_text: bool) -> Result<(), String> {
     let item = state.db.get_item(&id).map_err(|e| e.to_string())?;
+
+    if item.content_type == "image" {
+        if plain_text {
+            if let Some(label) = item.preview_text.as_deref() {
+                return write_clipboard(&state, label).map_err(|e| e.to_string());
+            }
+            return Err("This image has no plain-text representation.".into());
+        }
+        let blob_path = item
+            .blob_path
+            .as_deref()
+            .ok_or("Image file is missing on this device.")?;
+        return write_clipboard_image(
+            &state,
+            std::path::Path::new(blob_path),
+            item.preview_text.as_deref(),
+        )
+        .map_err(|e| e.to_string());
+    }
+
     let Some(text) = item.plain_text.clone() else {
-        return Ok(());
+        return Err("Nothing to copy for this item.".into());
     };
 
     if !plain_text {

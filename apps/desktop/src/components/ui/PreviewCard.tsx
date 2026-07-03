@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { convertFileSrc } from "@tauri-apps/api/core";
 import {
   Clipboard,
   ClipboardCopy,
@@ -131,6 +132,13 @@ export function PreviewCard({
   compact = false,
 }: PreviewCardProps) {
   const Icon = kindIcons[card.kind as keyof typeof kindIcons] ?? Type;
+  const thumbnailSrc = useMemo(() => {
+    if (!card.thumbnail) return null;
+    if (card.thumbnail.startsWith("data:") || card.thumbnail.startsWith("http")) {
+      return card.thumbnail;
+    }
+    return convertFileSrc(card.thumbnail);
+  }, [card.thumbnail]);
   const [menuOpen, setMenuOpen] = useState(false);
   const [busyAction, setBusyAction] = useState<BusyAction>(null);
   const [itemCollectionIds, setItemCollectionIds] = useState<string[]>(
@@ -201,7 +209,13 @@ export function PreviewCard({
     <div
       role="option"
       aria-selected={selected}
-      onClick={onSelect}
+      onClick={() => {
+        if (onCopy) {
+          void runAction(onCopy, setBusyAction, "copy");
+          return;
+        }
+        onSelect?.();
+      }}
       onDoubleClick={() => {
         if (onCopy) void runAction(onCopy, setBusyAction, "copy");
       }}
@@ -216,8 +230,8 @@ export function PreviewCard({
     >
       <div className="flex gap-3">
         <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border/50 bg-surface">
-          {card.thumbnail ? (
-            <img src={card.thumbnail} alt="" className="h-full w-full object-cover" />
+          {thumbnailSrc ? (
+            <img src={thumbnailSrc} alt="" className="h-full w-full object-cover" />
           ) : (
             <Icon className="h-4 w-4 text-muted" />
           )}

@@ -59,6 +59,13 @@ pub fn start_watcher(app: AppHandle) {
                 }
             }
 
+            // Password managers and the OS's own clipboard history mark
+            // secrets (passwords, 2FA codes) as "concealed" — never record
+            // or sync that content, regardless of what it looks like.
+            if super::concealed::clipboard_is_concealed() {
+                continue;
+            }
+
             if let Ok(text) = clipboard.get_text() {
                 if text.trim().is_empty() {
                     continue;

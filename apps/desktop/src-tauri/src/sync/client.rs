@@ -498,7 +498,11 @@ fn item_to_cloud(session: &AuthSession, item: &ItemRecord) -> CloudItem {
         url_domain: item.url_domain.clone(),
         code_language: item.code_language.clone(),
         line_count: item.line_count,
-        blob_path: item.blob_path.clone(),
+        // Never push the local absolute filesystem path (leaks the
+        // username/directory layout and is meaningless on other devices —
+        // there's no Supabase Storage upload yet, so image bytes stay
+        // local-only until that lands).
+        blob_path: None,
         blob_size: item.blob_size,
         content_hash: item.content_hash.clone(),
         plain_text: item.plain_text.clone(),

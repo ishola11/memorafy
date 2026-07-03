@@ -2,6 +2,11 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
 use crate::db::Database;
+use crate::keychain;
+
+/// SQLite key used before the OS keychain was adopted, and as a fallback
+/// when no OS credential backend is available.
+const LEGACY_SETTING_KEY: &str = "auth_session";
 
 #[derive(Debug, Clone)]
 pub enum RefreshError {
@@ -28,23 +33,50 @@ pub struct AuthSession {
     pub expires_at: i64,
 }
 
+/// Access/refresh tokens are long-lived credentials, so they live in the OS
+/// keychain rather than plaintext SQLite. If no credential backend is
+/// available (e.g. a headless Linux box with no Secret Service), we fall
+/// back to the local database rather than breaking sign-in entirely — this
+/// keeps the app usable while being the exception, not the rule.
 pub fn save_session(db: &Database, session: &AuthSession, email: &str) -> Result<(), String> {
     let json = serde_json::to_string(session)
         .map_err(|e| format!("could not serialize session: {e}"))?;
-    db.set_setting("auth_session", &json)
-        .map_err(|e| e.to_string())?;
+
+    match keychain::store(&json) {
+        Ok(()) => {
+            // Don't leave a stale plaintext copy from an older version or a
+            // previous fallback once the keychain write succeeds.
+            let _ = db.delete_setting(LEGACY_SETTING_KEY);
+        }
+        Err(e) => {
+            tracing::warn!("keychain unavailable, falling back to local storage: {e}");
+            db.set_setting(LEGACY_SETTING_KEY, &json)
+                .map_err(|e| e.to_string())?;
+        }
+    }
+
     db.set_setting("user_email", email).map_err(|e| e.to_string())?;
     Ok(())
 }
 
-pub fn load_session(db: &Database) -> Result<Option<AuthSession>, rusqlite::Error> {
-    let Some(raw) = db.get_setting("auth_session")? else {
+pub fn load_session(db: &Database) -> Result<Option<AuthSession>, String> {
+    let raw = match keychain::load() {
+        Ok(Some(json)) => Some(json),
+        Ok(None) => migrate_legacy_session(db)?,
+        Err(e) => {
+            tracing::warn!("keychain unavailable, reading local fallback: {e}");
+            db.get_setting(LEGACY_SETTING_KEY).map_err(|e| e.to_string())?
+        }
+    };
+
+    let Some(raw) = raw else {
         return Ok(None);
     };
+
     match serde_json::from_str(&raw) {
         Ok(session) => Ok(Some(session)),
         Err(e) => {
-            // A corrupt session row means the user is effectively signed out;
+            // A corrupt session means the user is effectively signed out;
             // log it so "why did I get signed out?" reports are debuggable.
             tracing::warn!("stored session is corrupt, treating as signed out: {e}");
             Ok(None)
@@ -52,9 +84,33 @@ pub fn load_session(db: &Database) -> Result<Option<AuthSession>, rusqlite::Erro
     }
 }
 
-pub fn clear_session(db: &Database) -> Result<(), rusqlite::Error> {
-    db.delete_setting("auth_session")?;
-    db.delete_setting("user_email")?;
+/// One-time upgrade path for installs that saved a session before Memora
+/// used the OS keychain (or that fell back to SQLite on a prior run).
+/// Leaves the plaintext row in place if the keychain write fails, so a
+/// transient backend issue can't lose the user's session.
+fn migrate_legacy_session(db: &Database) -> Result<Option<String>, String> {
+    let Some(raw) = db.get_setting(LEGACY_SETTING_KEY).map_err(|e| e.to_string())? else {
+        return Ok(None);
+    };
+    match keychain::store(&raw) {
+        Ok(()) => {
+            let _ = db.delete_setting(LEGACY_SETTING_KEY);
+            tracing::info!("migrated auth session from local storage to the system keychain");
+        }
+        Err(e) => tracing::warn!("could not migrate session to keychain, keeping local copy: {e}"),
+    }
+    Ok(Some(raw))
+}
+
+pub fn clear_session(db: &Database) -> Result<(), String> {
+    if let Err(e) = keychain::clear() {
+        // Sign-out must still succeed locally even if the OS keychain call
+        // fails; the stale keychain entry is harmless without a valid
+        // refresh token pairing and will be overwritten on next sign-in.
+        tracing::debug!("keychain clear: {e}");
+    }
+    db.delete_setting(LEGACY_SETTING_KEY).map_err(|e| e.to_string())?;
+    db.delete_setting("user_email").map_err(|e| e.to_string())?;
     Ok(())
 }
 

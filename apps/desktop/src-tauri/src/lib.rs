@@ -4,6 +4,7 @@ pub mod clipboard;
 pub mod commands;
 pub mod db;
 pub mod feedback;
+pub mod keychain;
 pub mod logging;
 pub mod macos_popover;
 pub mod macos_quick_paste;
@@ -243,8 +244,16 @@ pub fn run() {
             #[cfg(not(target_os = "macos"))]
             let modifiers = Modifiers::CONTROL | Modifiers::SHIFT;
 
+            // Another app can legitimately hold this combination (it's a
+            // common shortcut). Losing it must not crash Memora — Quick
+            // Paste stays reachable from the tray menu either way.
             let shortcut = Shortcut::new(Some(modifiers), Code::KeyV);
-            app.global_shortcut().register(shortcut)?;
+            if let Err(e) = app.global_shortcut().register(shortcut) {
+                tracing::warn!(
+                    "could not register the Quick Paste shortcut (likely already used by \
+                     another app): {e}. Use the tray menu's \"Quick Paste\" item instead."
+                );
+            }
 
             // Start clipboard watcher
             let handle = app.handle().clone();

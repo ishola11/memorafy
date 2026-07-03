@@ -82,6 +82,14 @@
 - [x] **Feedback** — new Settings section: bug reports & feature requests with diagnostics preview and explicit consent; provider-abstracted submission (currently drafts a prefilled GitHub issue the user reviews in their browser)
 - [x] **Cleanup** — removed fake "Copy as plain text" action, dead `clear_all_history`/`parse_expires_at`, unreferenced local migration; card action failures now show an error toast; versions unified at 0.1.8
 
+## Phase 4: Production Hardening — Wave 2 (2026-07-03)
+
+- [x] **Keychain token storage** — auth session (access/refresh tokens) moved from plaintext SQLite to the OS credential store (Windows Credential Manager / macOS Keychain via `keyring`); existing plaintext sessions migrate automatically on next load; falls back to local storage (with a logged warning) if no OS backend is available rather than breaking sign-in
+- [x] **Concealed-clipboard exclusion (Windows)** — detects the `ExcludeClipboardContentFromMonitorProcessing` clipboard format that password managers (1Password, Bitwarden, KeePass) and Windows' own Clipboard History use to mark secrets, and skips capture entirely; verified live against the real clipboard. **macOS equivalent (`org.nspasteboard.ConcealedType`) is not yet implemented** — requires native AppKit bindings that couldn't be compiled/verified outside a macOS environment; tracked as follow-up, logs a one-time warning in the meantime
+- [x] **Content Security Policy** — `tauri.conf.json` had `csp: null`; now a strict policy (`script-src 'self'`, no `unsafe-eval`) scoped to what the app actually loads (Google Fonts, Tauri IPC, local assets). Verified against the running dev build: Settings, tray search, and sync status all still work
+- [x] **Stopped syncing local blob_path** — image items were pushing their local absolute filesystem path (leaking the username/directory layout) to Supabase, where it was never valid on another device anyway; now always `NULL` on push and pull. `services/migrations/007_clear_leaked_blob_paths.sql` scrubs already-synced data
+- [x] **Fixed a live startup crash found during verification** — global shortcut registration failure (e.g. another app already holds `Ctrl+Shift+V`) was aborting the whole app via `?` in the setup hook; now logs a warning and continues (Quick Paste stays reachable from the tray menu)
+
 ## Next Up
 
 1. Run `003_collections_realtime.sql` in Supabase if project predates this update
@@ -95,6 +103,7 @@
 2. Run `services/migrations/SETUP_ALL.sql` in SQL editor (new projects)
 3. Existing projects: also run `services/migrations/003_collections_realtime.sql`
 4. Run `services/migrations/002_plain_text_realtime.sql` if not already applied
+5. Run `services/migrations/007_clear_leaked_blob_paths.sql` if you synced image items before v0.1.9 (clears local file paths that were mistakenly pushed to the cloud)
 5. Create a test user (Authentication → Users → Add user)
 6. Copy project URL + anon key to `apps/desktop/.env`
 

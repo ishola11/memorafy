@@ -1435,7 +1435,10 @@ impl Database {
                 item.url_domain,
                 item.code_language,
                 item.line_count,
-                item.blob_path,
+                // A blob_path from another device's local filesystem can
+                // never be valid here — discard it even if an older client
+                // version pushed one before this was fixed.
+                Option::<String>::None,
                 item.blob_size,
                 item.content_hash,
                 item.plain_text,

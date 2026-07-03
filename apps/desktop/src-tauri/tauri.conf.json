@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Memora",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "identifier": "com.memora.desktop",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -70,7 +70,7 @@
       }
     ],
     "security": {
-      "csp": null,
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: asset: https://asset.localhost; connect-src 'self' ipc: http://ipc.localhost https://ipc.localhost https://fonts.googleapis.com https://fonts.gstatic.com; object-src 'none'; base-uri 'none'; form-action 'none'",
       "capabilities": [
         "default"
       ]

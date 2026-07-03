@@ -1,6 +1,6 @@
 [package]
 name = "memora-desktop"
-version = "0.1.8"
+version = "0.1.9"
 description = "Memora - Your personal cross-device memory"
 authors = ["Memora"]
 edition = "2021"
@@ -46,6 +46,11 @@ futures-util = "0.3"
 dotenvy = "0.15"
 url = "2"
 urlencoding = "2"
+# keyring ships no default credential backend — these features select the
+# real OS store (Windows Credential Manager / macOS Keychain). Each feature
+# only pulls in its platform-gated dependency, so listing both here is safe
+# on every target.
+keyring = { version = "3", features = ["windows-native", "apple-native"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 tauri-plugin-nspopover = { git = "https://github.com/freethinkel/tauri-nspopover-plugin.git", version = "4.1.0" }
@@ -56,6 +61,7 @@ windows = { version = "0.58", features = [
     "Win32_Foundation",
     "Win32_UI_WindowsAndMessaging",
     "Win32_System_DataExchange",
+    "Win32_System_Memory",
 ] }
 
 [profile.release]

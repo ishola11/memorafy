@@ -287,7 +287,11 @@ impl SyncEngine {
             .db
             .clear_pending_sync_queue()
             .map_err(|e| e.to_string())?;
-        self.rotate_local_device()?;
+        // Deliberately NOT rotating the device id here: unconditional
+        // rotation on every repair created a new cloud device row each time
+        // (users saw the same machine listed five times). Bootstrap still
+        // rotates in the one case that requires it — the id being claimed
+        // by another account (Postgres 23505).
         self.bootstrap_after_auth(&session).await?;
         let report = self
             .sync_tick()
@@ -301,7 +305,7 @@ impl SyncEngine {
             pending_before,
             pending_after,
             queue_cleared,
-            device_rotated: true,
+            device_rotated: false,
             state,
         })
     }
@@ -471,12 +475,7 @@ impl SyncEngine {
             .map_err(|e| e.to_string())?;
 
         // Devices must exist locally before items (FK: source_device_id)
-        let remote_devices = client.fetch_devices(session).await.map_err(|e| e.to_string())?;
-        for device in remote_devices {
-            if let Err(e) = self.db.upsert_remote_device(&device) {
-                tracing::warn!("pull device {}: {e}", device.id);
-            }
-        }
+        self.pull_devices(session, &device_id).await?;
 
         // Collections before items/item_collections (FK: collection_id, item_id)
         let remote_collections = client.fetch_collections(session).await.map_err(|e| e.to_string())?;
@@ -514,6 +513,53 @@ impl SyncEngine {
         let _ = self.app.emit("items-updated", ());
         let _ = self.app.emit("collections-updated", ());
         Ok(())
+    }
+
+    /// Pull the cloud device list, upsert it locally, and prune local rows
+    /// the cloud no longer knows (duplicates merged by `register_device`).
+    async fn pull_devices(
+        &self,
+        session: &AuthSession,
+        current_device_id: &str,
+    ) -> Result<(), String> {
+        let client = self.client.as_ref().ok_or("Supabase not configured")?;
+        let remote_devices = client.fetch_devices(session).await.map_err(|e| e.to_string())?;
+        let remote_ids: Vec<String> = remote_devices.iter().map(|d| d.id.clone()).collect();
+
+        for device in remote_devices {
+            if let Err(e) = self.db.upsert_remote_device(&device) {
+                tracing::warn!("pull device {}: {e}", device.id);
+            }
+        }
+
+        match self.db.prune_local_devices_not_in(&remote_ids, current_device_id) {
+            Ok(0) => {}
+            Ok(n) => tracing::info!("pruned {n} stale local device record(s)"),
+            Err(e) => tracing::warn!("device prune: {e}"),
+        }
+        Ok(())
+    }
+
+    /// Refresh the device list from the cloud on demand (used when the
+    /// Devices settings page loads). Transient failures are logged, not
+    /// surfaced — the UI falls back to the local snapshot.
+    pub async fn refresh_devices(&self) {
+        let session = match ensure_session(self).await {
+            Ok(s) => s,
+            Err(_) => return,
+        };
+        let device_id = self
+            .db
+            .get_setting(SETTING_LOCAL_DEVICE_ID)
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+        if device_id.is_empty() {
+            return;
+        }
+        if let Err(e) = self.pull_devices(&session, &device_id).await {
+            tracing::debug!("device refresh: {e}");
+        }
     }
 
     fn prepare_local_device(&self, session: &AuthSession) -> Result<(String, String), String> {

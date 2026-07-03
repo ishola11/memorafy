@@ -98,6 +98,12 @@
 - [x] **Empty states** — history/pinned/favorites tabs teach the feature instead of "Nothing here yet"
 - [x] **Startup bootstrap fix (found during verification)** — bootstrap ran with the stored (possibly expired) JWT, so device registration failed with "JWT expired" after the app had been closed >1 hour; the session is now refreshed before bootstrap
 
+## Phase 4: Pre-Wave-4 fixes (2026-07-03)
+
+- [x] **Duplicate devices fixed** — repair_sync no longer rotates the device id on every run (the main duplicate generator); `008_dedupe_devices.sql` makes the register_device RPC self-healing (stale same-name rows are merged into the registering device, items reattributed, with a 10-minute activity guard so two live machines sharing a hostname can't delete each other); local stale device rows pruned during bootstrap; the Devices settings page now refreshes from the cloud on open
+- [x] **Tray "Sync now"** — new tray-menu action runs a full pull+push in the background and reports the outcome as a toast in open panels
+- [x] **Icon redesign** — new stacked-clip-cards mark (mirrors the product UI) with gradient background; full icon set regenerated via `tauri icon`; matching monochrome macOS menubar template; verified legible at Windows tray size
+
 ## Next Up
 
 1. Run `003_collections_realtime.sql` in Supabase if project predates this update

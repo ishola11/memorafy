@@ -10,11 +10,13 @@ import {
   onCollectionsUpdated,
   onItemsUpdated,
   onQuickPasteVisibility,
+  onSyncFinished,
   onThemeChanged,
   onTrayVisibility,
 } from "@/lib/api";
 import { applyTheme, initTheme, watchSystemTheme } from "@/lib/theme";
 import type { ThemePreference } from "@memora/shared-types";
+import { useActionToastStore } from "@/stores/action-toast-store";
 import { useAppStore } from "@/stores/app-store";
 
 /** Settings window content, gated behind first-launch onboarding. */
@@ -92,6 +94,13 @@ export default function App() {
     }).then((unlisten) => unsubs.push(unlisten));
 
     void onCollectionsUpdated(() => {
+      void refresh();
+    }).then((unlisten) => unsubs.push(unlisten));
+
+    void onSyncFinished((message) => {
+      useActionToastStore
+        .getState()
+        .showActionToast(message, message.includes("failed") ? "error" : "success");
       void refresh();
     }).then((unlisten) => unsubs.push(unlisten));
 

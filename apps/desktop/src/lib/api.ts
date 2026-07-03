@@ -262,3 +262,10 @@ export function onSyncReceived(callback: (transfer: import("@memora/shared-types
     callback(event.payload);
   });
 }
+
+/** Fired when a tray-menu "Sync now" finishes, with a human-readable outcome. */
+export function onSyncFinished(callback: (message: string) => void) {
+  return listen<string>("sync-finished", (event) => {
+    callback(event.payload);
+  });
+}

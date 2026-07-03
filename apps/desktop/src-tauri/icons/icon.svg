@@ -1,5 +1,25 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="108" fill="#6366f1"/>
-  <path d="M128 160h256v48H128zm0 96h192v48H128zm0 96h256v48H128z" fill="#ffffff" opacity="0.95"/>
-  <circle cx="384" cy="352" r="40" fill="#a5b4fc"/>
+  <!--
+    Memora app icon: a stack of clipboard cards (the product's core UI),
+    newest card in front. Shapes are deliberately chunky so the mark stays
+    legible at 16px tray size.
+  -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#8b8ef9"/>
+      <stop offset="1" stop-color="#4f46e5"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+
+  <!-- older clips receding into history -->
+  <rect x="160" y="104" width="192" height="72" rx="24" fill="#ffffff" opacity="0.28"/>
+  <rect x="128" y="144" width="256" height="88" rx="28" fill="#ffffff" opacity="0.5"/>
+
+  <!-- newest clip card -->
+  <rect x="96" y="192" width="320" height="192" rx="40" fill="#ffffff"/>
+  <circle cx="156" cy="256" r="24" fill="#6366f1"/>
+  <rect x="200" y="236" width="168" height="40" rx="20" fill="#a5b4fc"/>
+  <rect x="132" y="308" width="248" height="32" rx="16" fill="#c7d2fe"/>
 </svg>

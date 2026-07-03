@@ -170,10 +170,12 @@ pub fn run() {
             let show_i = MenuItem::with_id(app, "show", "Open Memora", true, None::<&str>)?;
             let quick_i =
                 MenuItem::with_id(app, "quick", "Quick Paste", true, None::<&str>)?;
+            let sync_i = MenuItem::with_id(app, "sync", "Sync now", true, None::<&str>)?;
             let settings_i =
                 MenuItem::with_id(app, "settings", "Settings", true, None::<&str>)?;
             let quit_i = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&show_i, &quick_i, &settings_i, &quit_i])?;
+            let menu =
+                Menu::with_items(app, &[&show_i, &quick_i, &sync_i, &settings_i, &quit_i])?;
 
             #[cfg(target_os = "macos")]
             {
@@ -187,6 +189,7 @@ pub fn run() {
                 tray.on_menu_event(|app, event| match event.id.as_ref() {
                     "show" => open_memora(app),
                     "quick" => toggle_quick_paste(app, true),
+                    "sync" => trigger_tray_sync(app),
                     "settings" => {
                         let _ = commands::open_settings(app.clone());
                     }
@@ -217,6 +220,7 @@ pub fn run() {
                     .on_menu_event(|app, event| match event.id.as_ref() {
                         "show" => open_memora(app),
                         "quick" => toggle_quick_paste(app, true),
+                        "sync" => trigger_tray_sync(app),
                         "settings" => {
                             let _ = commands::open_settings(app.clone());
                         }
@@ -384,6 +388,23 @@ pub fn run() {
                 }
             }
         });
+}
+
+/// Tray-menu "Sync now": full pull + push in the background, with the
+/// outcome surfaced as a toast in whichever panel windows are open.
+fn trigger_tray_sync(app: &tauri::AppHandle) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let state = app.state::<AppState>();
+        let message = match state.sync_engine.force_sync_now().await {
+            Ok(result) => result.message,
+            Err(e) => {
+                tracing::warn!("tray sync failed: {e}");
+                format!("Sync failed: {e}")
+            }
+        };
+        let _ = app.emit("sync-finished", message);
+    });
 }
 
 /// Primary entry from tray menu — NSPopover history on macOS, sidebar panel on Windows.

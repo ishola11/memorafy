@@ -1500,6 +1500,40 @@ impl Database {
         Ok(())
     }
 
+    /// Remove local device rows that no longer exist in the cloud (e.g.
+    /// duplicates merged server-side by `register_device`). Their items are
+    /// reattributed to the current device first, so history keeps a valid
+    /// source and the FK stays satisfied.
+    pub fn prune_local_devices_not_in(
+        &self,
+        remote_ids: &[String],
+        current_device_id: &str,
+    ) -> Result<u32, rusqlite::Error> {
+        let mut conn = self.conn.lock();
+        let tx = conn.transaction()?;
+
+        let stale_ids: Vec<String> = {
+            let mut stmt =
+                tx.prepare("SELECT id FROM devices WHERE is_current = 0 AND id != ?1")?;
+            let rows = stmt.query_map(params![current_device_id], |row| row.get(0))?;
+            rows.collect::<Result<Vec<String>, _>>()?
+                .into_iter()
+                .filter(|id| !remote_ids.contains(id))
+                .collect()
+        };
+
+        for id in &stale_ids {
+            tx.execute(
+                "UPDATE items SET source_device_id = ?1 WHERE source_device_id = ?2",
+                params![current_device_id, id],
+            )?;
+            tx.execute("DELETE FROM devices WHERE id = ?1", params![id])?;
+        }
+
+        tx.commit()?;
+        Ok(stale_ids.len() as u32)
+    }
+
     fn ensure_device_exists(&self, device_id: &str) -> Result<(), rusqlite::Error> {
         let conn = self.conn.lock();
         let exists: i64 = conn.query_row(
@@ -1749,6 +1783,38 @@ mod tests {
             })
             .expect("search after delete");
         assert!(results.is_empty(), "deleted item must leave no ghost search hits");
+    }
+
+    #[test]
+    fn pruning_stale_devices_reattributes_their_items() {
+        let (db, _guard) = test_db();
+        let current = db.ensure_device().expect("device");
+
+        // Simulate a leftover device row from an old id rotation, with an
+        // item still attributed to it.
+        let stale_id = "stale-device-id".to_string();
+        {
+            let conn = db.conn.lock();
+            conn.execute(
+                "INSERT INTO devices (id, name, platform, is_current, created_at) VALUES (?1, 'Old Row', 'windows', 0, '2026-01-01T00:00:00Z')",
+                params![stale_id],
+            )
+            .expect("insert stale device");
+        }
+        let item = db
+            .insert_item(&stale_id, "text", Some("orphan".to_string()), None, None, None, None, "h1")
+            .expect("insert item");
+
+        // Cloud no longer knows the stale row (it was merged server-side).
+        let pruned = db
+            .prune_local_devices_not_in(&[current.clone()], &current)
+            .expect("prune");
+        assert_eq!(pruned, 1);
+
+        let devices = db.get_devices().expect("devices");
+        assert!(devices.iter().all(|d| d.id != stale_id), "stale row removed");
+        let item = db.get_item(&item.id).expect("item survives");
+        assert_eq!(item.source_device_id.as_deref(), Some(current.as_str()));
     }
 
     #[test]

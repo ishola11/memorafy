@@ -346,7 +346,11 @@ pub fn set_theme_preference(
 }
 
 #[tauri::command]
-pub fn get_devices(state: State<'_, AppState>) -> Result<Vec<crate::db::DeviceDto>, String> {
+pub async fn get_devices(state: State<'_, AppState>) -> Result<Vec<crate::db::DeviceDto>, String> {
+    // Refresh from the cloud when possible so the Devices page shows the
+    // deduplicated, current list instead of a stale local snapshot; falls
+    // back silently to local data offline.
+    state.sync_engine.refresh_devices().await;
     state.db.get_devices().map_err(|e| e.to_string())
 }
 

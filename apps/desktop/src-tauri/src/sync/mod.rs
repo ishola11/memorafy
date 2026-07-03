@@ -77,6 +77,16 @@ pub struct SyncTransferDto {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct SignUpResultDto {
+    #[serde(flatten)]
+    pub state: SyncStateDto,
+    /// True when the account was created but the user must click the
+    /// confirmation link emailed to them before they can sign in.
+    pub needs_email_confirmation: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SyncActionResultDto {
     #[serde(flatten)]
     pub state: SyncStateDto,
@@ -204,6 +214,41 @@ impl SyncEngine {
         self.get_state()
     }
 
+    pub async fn sign_up(&self, email: &str, password: &str) -> Result<SignUpResultDto, String> {
+        let client = self.client.as_ref().ok_or("Supabase not configured")?;
+        match client.sign_up(email, password).await? {
+            client::SignUpOutcome::SignedIn(session) => {
+                auth::save_session(&self.db, &session, email)?;
+                self.bootstrap_after_auth(&session).await?;
+                let _ = self.sync_tick().await;
+                Ok(SignUpResultDto {
+                    state: self.get_state()?,
+                    needs_email_confirmation: false,
+                })
+            }
+            client::SignUpOutcome::ConfirmationEmailSent => Ok(SignUpResultDto {
+                state: self.get_state()?,
+                needs_email_confirmation: true,
+            }),
+        }
+    }
+
+    pub async fn resend_confirmation(&self, email: &str) -> Result<(), String> {
+        let client = self.client.as_ref().ok_or("Supabase not configured")?;
+        client.resend_confirmation(email).await
+    }
+
+    pub async fn request_password_reset(&self, email: &str) -> Result<(), String> {
+        let client = self.client.as_ref().ok_or("Supabase not configured")?;
+        client.request_password_reset(email).await
+    }
+
+    pub async fn change_password(&self, new_password: &str) -> Result<(), String> {
+        let client = self.client.as_ref().ok_or("Supabase not configured")?;
+        let session = ensure_session(self).await.map_err(|e| e.to_string())?;
+        client.update_password(&session, new_password).await
+    }
+
     /// Pull from cloud, push pending changes, and refresh local state.
     pub async fn force_sync_now(&self) -> Result<SyncActionResultDto, String> {
         let pending_before = self.db.pending_sync_count().map_err(|e| e.to_string())?;
@@ -274,10 +319,17 @@ impl SyncEngine {
             };
             rt.block_on(async {
                 if engine.is_configured() {
-                    if let Ok(Some(session)) = auth::load_session(&engine.db) {
-                        if let Err(e) = engine.bootstrap_after_auth(&session).await {
-                            tracing::warn!("sync bootstrap: {e}");
+                    // Refresh the stored session before bootstrapping — after
+                    // the app has been closed for over an hour the saved JWT
+                    // is expired and device registration would fail.
+                    match ensure_session(&engine).await {
+                        Ok(session) => {
+                            if let Err(e) = engine.bootstrap_after_auth(&session).await {
+                                tracing::warn!("sync bootstrap: {e}");
+                            }
                         }
+                        Err(EnsureSessionError::NotLoggedIn | EnsureSessionError::NotConfigured) => {}
+                        Err(e) => tracing::warn!("sync bootstrap skipped: {e}"),
                     }
                     let rt_engine = engine.clone();
                     tokio::spawn(async move {

@@ -106,6 +106,11 @@ export interface SyncState {
   cloudDeviceCount: number;
 }
 
+export interface SignUpResult extends SyncState {
+  /** Account created but the emailed confirmation link must be clicked first. */
+  needsEmailConfirmation: boolean;
+}
+
 export interface SyncActionResult extends SyncState {
   message: string;
   pendingBefore: number;

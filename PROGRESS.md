@@ -90,6 +90,14 @@
 - [x] **Stopped syncing local blob_path** — image items were pushing their local absolute filesystem path (leaking the username/directory layout) to Supabase, where it was never valid on another device anyway; now always `NULL` on push and pull. `services/migrations/007_clear_leaked_blob_paths.sql` scrubs already-synced data
 - [x] **Fixed a live startup crash found during verification** — global shortcut registration failure (e.g. another app already holds `Ctrl+Shift+V`) was aborting the whole app via `?` in the setup hook; now logs a warning and continues (Quick Paste stays reachable from the tray menu)
 
+## Phase 4: Production Hardening — Wave 3 (2026-07-03)
+
+- [x] **Account lifecycle** — sign-up (handles both email-confirmation-on and -off Supabase projects, with resend), forgot/reset password (enumeration-safe wording), change password (Settings → Account, signed-in view), show-password toggles, friendly error mapping throughout
+- [x] **First-launch onboarding** — 3-step welcome hosted in the settings window (auto-opened on first launch since the app is tray-only): features + Quick Paste shortcut, privacy explainer (local-first, concealed-clipboard exclusion, honest not-yet-E2E disclosure), sync sign-in/sign-up/skip step that adapts when the build has no Supabase config. Verified end-to-end against the running app
+- [x] **Honest sync badge** — tray badge now reflects actual sync health (green Synced / amber "N pending" / gray "Local only") instead of just login state
+- [x] **Empty states** — history/pinned/favorites tabs teach the feature instead of "Nothing here yet"
+- [x] **Startup bootstrap fix (found during verification)** — bootstrap ran with the stored (possibly expired) JWT, so device registration failed with "JWT expired" after the app had been closed >1 hour; the session is now refreshed before bootstrap
+
 ## Next Up
 
 1. Run `003_collections_realtime.sql` in Supabase if project predates this update

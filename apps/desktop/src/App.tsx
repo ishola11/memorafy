@@ -1,10 +1,12 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import { OnboardingFlow } from "@/components/onboarding/OnboardingFlow";
 import { QuickPasteLauncher } from "@/components/quick-paste/QuickPasteLauncher";
 import { SettingsPanel } from "@/components/settings/SettingsPanel";
 import { TrayPanel, TrayShell } from "@/components/tray/TrayPanel";
 import { ActionToast } from "@/components/ui/ActionToast";
 import { SyncToast } from "@/components/ui/SyncToast";
 import {
+  getOnboardingCompleted,
   onCollectionsUpdated,
   onItemsUpdated,
   onQuickPasteVisibility,
@@ -14,6 +16,27 @@ import {
 import { applyTheme, initTheme, watchSystemTheme } from "@/lib/theme";
 import type { ThemePreference } from "@memora/shared-types";
 import { useAppStore } from "@/stores/app-store";
+
+/** Settings window content, gated behind first-launch onboarding. */
+function SettingsWindow() {
+  // null = still checking; avoids flashing settings before the welcome flow.
+  const [onboarded, setOnboarded] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    void getOnboardingCompleted()
+      .then(setOnboarded)
+      // If the check fails, don't lock the user out of settings.
+      .catch(() => setOnboarded(true));
+  }, []);
+
+  if (onboarded === null) {
+    return <div className="h-full bg-surface" />;
+  }
+  if (!onboarded) {
+    return <OnboardingFlow onDone={() => setOnboarded(true)} />;
+  }
+  return <SettingsPanel />;
+}
 
 function getWindowMode(): "quick-paste" | "tray" | "settings" | "main" {
   const params = new URLSearchParams(window.location.search);
@@ -80,7 +103,7 @@ export default function App() {
   if (windowMode === "settings") {
     return (
       <TrayShell className="h-full overflow-hidden">
-        <SettingsPanel />
+        <SettingsWindow />
       </TrayShell>
     );
   }

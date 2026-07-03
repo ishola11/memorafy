@@ -18,7 +18,6 @@ import {
   Info,
 } from "lucide-react";
 import {
-  authLogin,
   authLogout,
   forceSyncNow,
   getAppSettings,
@@ -34,6 +33,7 @@ import {
 import { checkForUpdates, getAppVersion } from "@/lib/updater";
 import { applyTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
+import { AuthForms, ChangePasswordForm } from "@/components/settings/AuthForms";
 import { ClearHistorySettings } from "@/components/settings/ClearHistorySettings";
 import { CollectionsSettings } from "@/components/settings/CollectionsSettings";
 import { FeedbackSettings } from "@/components/settings/FeedbackSettings";
@@ -86,8 +86,6 @@ export function SettingsPanel() {
   const [devices, setDevices] = useState<DeviceInfo[]>([]);
   const [collections, setCollections] = useState<Collection[]>([]);
   const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [repairing, setRepairing] = useState(false);
@@ -112,7 +110,6 @@ export function SettingsPanel() {
     setDevices(devs);
     setAppSettings(settings);
     setCollections(cols);
-    if (sync.userEmail) setEmail(sync.userEmail);
     applyTheme(settings.themePreference);
   };
 
@@ -120,28 +117,11 @@ export function SettingsPanel() {
     void refresh();
   }, []);
 
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    setError(null);
-    try {
-      const sync = await authLogin(email, password);
-      setState(sync);
-      setPassword("");
-      await refresh();
-    } catch (err) {
-      setError(String(err));
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleLogout = async () => {
     setLoading(true);
     try {
       const sync = await authLogout();
       setState(sync);
-      setPassword("");
       setDevices([]);
     } finally {
       setLoading(false);
@@ -356,6 +336,7 @@ export function SettingsPanel() {
                   {error && (
                     <p className="text-center text-sm text-red-500">{error}</p>
                   )}
+                  <ChangePasswordForm />
                   <button
                     type="button"
                     onClick={() => void handleLogout()}
@@ -367,39 +348,14 @@ export function SettingsPanel() {
                   </button>
                 </div>
               ) : (
-                <form onSubmit={(e) => void handleLogin(e)} className="space-y-4">
-                  <div>
-                    <label className="mb-1.5 block text-xs text-muted">Email</label>
-                    <input
-                      type="email"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      required
-                      disabled={!state.configured}
-                      className="w-full rounded-lg border border-border/60 bg-surface px-3 py-2.5 text-sm outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/30"
-                    />
-                  </div>
-                  <div>
-                    <label className="mb-1.5 block text-xs text-muted">Password</label>
-                    <input
-                      type="password"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      required
-                      disabled={!state.configured}
-                      className="w-full rounded-lg border border-border/60 bg-surface px-3 py-2.5 text-sm outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/30"
-                    />
-                  </div>
-                  {error && <p className="text-sm text-red-500">{error}</p>}
-                  <button
-                    type="submit"
-                    disabled={loading || !state.configured}
-                    className="flex w-full items-center justify-center gap-2 rounded-xl bg-accent py-2.5 text-sm font-medium text-white hover:bg-accent/90 disabled:opacity-50"
-                  >
-                    {loading && <Loader2 className="h-4 w-4 animate-spin" />}
-                    Sign in to sync
-                  </button>
-                </form>
+                <AuthForms
+                  configured={state.configured}
+                  initialEmail={state.userEmail}
+                  onSignedIn={(sync) => {
+                    setState(sync);
+                    void refresh();
+                  }}
+                />
               )}
             </div>
           )}

@@ -66,6 +66,45 @@ pub fn is_foreign_key_violation(err: &str) -> bool {
 const NETWORK_ERROR_MESSAGE: &str =
     "Couldn't reach the sync server. Check your internet connection and try again.";
 
+/// Result of a sign-up attempt, shaped by the Supabase project's
+/// email-confirmation setting.
+pub enum SignUpOutcome {
+    SignedIn(AuthSession),
+    ConfirmationEmailSent,
+}
+
+fn friendly_signup_error(status: reqwest::StatusCode, body: &str) -> String {
+    let detail = serde_json::from_str::<serde_json::Value>(body)
+        .ok()
+        .and_then(|v| {
+            ["error_description", "msg", "message", "error"]
+                .iter()
+                .find_map(|k| v.get(k).and_then(|s| s.as_str()).map(String::from))
+        })
+        .unwrap_or_default();
+
+    if detail.contains("already registered") || detail.contains("already been registered") {
+        return "An account with this email already exists. Try signing in instead.".to_string();
+    }
+    if detail.contains("at least") || detail.to_lowercase().contains("password") {
+        return "That password doesn't meet the requirements. Use at least 8 characters.".to_string();
+    }
+    if detail.contains("invalid format") || detail.to_lowercase().contains("valid email") {
+        return "Please enter a valid email address.".to_string();
+    }
+    if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+        return "Too many attempts. Please wait a minute and try again.".to_string();
+    }
+    if status.is_server_error() {
+        return NETWORK_ERROR_MESSAGE.to_string();
+    }
+    if detail.is_empty() {
+        format!("Sign-up failed ({status}). Please try again.")
+    } else {
+        format!("Sign-up failed: {detail}")
+    }
+}
+
 /// Map raw Supabase auth responses to messages a user can act on. The raw
 /// body is logged by the caller; the UI only ever sees these.
 fn friendly_auth_error(status: reqwest::StatusCode, body: &str) -> String {
@@ -136,6 +175,126 @@ impl SupabaseClient {
 
         let value: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
         session_from_auth_response(&value)
+    }
+
+    /// Creates a new account. Depending on the Supabase project's settings
+    /// the response either contains a full session (email confirmation
+    /// disabled → user is signed in immediately) or just a user record
+    /// (confirmation enabled → they must click the emailed link first).
+    pub async fn sign_up(&self, email: &str, password: &str) -> Result<SignUpOutcome, String> {
+        let url = format!("{}/signup", self.config.auth_url());
+        let body = serde_json::json!({ "email": email, "password": password });
+        let resp = self
+            .http
+            .post(url)
+            .header("apikey", &self.config.anon_key)
+            .header("Content-Type", "application/json")
+            .json(&body)
+            .send()
+            .await
+            .map_err(|_| NETWORK_ERROR_MESSAGE.to_string())?;
+
+        let status = resp.status();
+        if !status.is_success() {
+            let text = resp.text().await.unwrap_or_default();
+            tracing::warn!("sign-up failed ({status}): {text}");
+            return Err(friendly_signup_error(status, &text));
+        }
+
+        let value: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+        match session_from_auth_response(&value) {
+            Ok(session) => Ok(SignUpOutcome::SignedIn(session)),
+            // No access_token in the response means the project requires
+            // email confirmation before a session is issued.
+            Err(_) => Ok(SignUpOutcome::ConfirmationEmailSent),
+        }
+    }
+
+    /// Re-sends the sign-up confirmation email.
+    pub async fn resend_confirmation(&self, email: &str) -> Result<(), String> {
+        let url = format!("{}/resend", self.config.auth_url());
+        let body = serde_json::json!({ "type": "signup", "email": email });
+        let resp = self
+            .http
+            .post(url)
+            .header("apikey", &self.config.anon_key)
+            .header("Content-Type", "application/json")
+            .json(&body)
+            .send()
+            .await
+            .map_err(|_| NETWORK_ERROR_MESSAGE.to_string())?;
+
+        if !resp.status().is_success() {
+            let text = resp.text().await.unwrap_or_default();
+            tracing::warn!("resend confirmation failed: {text}");
+            return Err("Couldn't resend the email right now. Please try again in a minute.".into());
+        }
+        Ok(())
+    }
+
+    /// Sends a password-reset email. Only transport-level failures are
+    /// errors — a success response is returned whether or not the account
+    /// exists, and callers must word the UI accordingly so this endpoint
+    /// can't be used to probe which emails have accounts.
+    pub async fn request_password_reset(&self, email: &str) -> Result<(), String> {
+        let url = format!("{}/recover", self.config.auth_url());
+        let body = serde_json::json!({ "email": email });
+        let resp = self
+            .http
+            .post(url)
+            .header("apikey", &self.config.anon_key)
+            .header("Content-Type", "application/json")
+            .json(&body)
+            .send()
+            .await
+            .map_err(|_| NETWORK_ERROR_MESSAGE.to_string())?;
+
+        let status = resp.status();
+        if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+            return Err("Too many reset requests. Please wait a minute and try again.".into());
+        }
+        if status.is_server_error() {
+            return Err(NETWORK_ERROR_MESSAGE.to_string());
+        }
+        if !status.is_success() {
+            // 4xx (e.g. invalid email format) — log it, but keep the UI
+            // response generic; don't reveal whether the account exists.
+            let text = resp.text().await.unwrap_or_default();
+            tracing::debug!("password reset request ({status}): {text}");
+        }
+        Ok(())
+    }
+
+    /// Changes the signed-in user's password. Requires a valid session.
+    pub async fn update_password(
+        &self,
+        session: &AuthSession,
+        new_password: &str,
+    ) -> Result<(), String> {
+        let url = format!("{}/user", self.config.auth_url());
+        let body = serde_json::json!({ "password": new_password });
+        let resp = self
+            .http
+            .put(url)
+            .headers(auth_headers(&self.config, session)?)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|_| NETWORK_ERROR_MESSAGE.to_string())?;
+
+        let status = resp.status();
+        if !status.is_success() {
+            let text = resp.text().await.unwrap_or_default();
+            tracing::warn!("password change failed ({status}): {text}");
+            if text.contains("should be different") {
+                return Err("The new password must be different from your current one.".into());
+            }
+            if text.contains("at least") || text.contains("Password") {
+                return Err("That password doesn't meet the requirements. Use at least 8 characters.".into());
+            }
+            return Err(friendly_auth_error(status, &text));
+        }
+        Ok(())
     }
 
     pub async fn refresh(&self, session: &AuthSession) -> Result<AuthSession, RefreshError> {

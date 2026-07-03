@@ -23,6 +23,42 @@ import { useAppStore } from "@/stores/app-store";
 
 const SNIPPET_KINDS = new Set(["text", "url", "code"]);
 
+/**
+ * Reflects actual sync health, not just login state — a green "Synced"
+ * badge while 40 changes sit stuck in the queue would be a lie.
+ */
+function SyncBadge({ syncState }: { syncState: SyncState | null }) {
+  if (!syncState?.configured) return null;
+
+  if (!syncState.loggedIn) {
+    return (
+      <span className="flex items-center gap-1 rounded-full bg-zinc-500/10 px-1.5 py-0.5 text-[10px] font-medium text-zinc-500 dark:text-zinc-400">
+        <span className="h-1.5 w-1.5 rounded-full bg-zinc-400" />
+        Local only
+      </span>
+    );
+  }
+
+  if (syncState.pendingCount > 0) {
+    return (
+      <span
+        className="flex items-center gap-1 rounded-full bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-400"
+        title="Changes waiting to upload — they'll sync automatically"
+      >
+        <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+        {syncState.pendingCount} pending
+      </span>
+    );
+  }
+
+  return (
+    <span className="flex items-center gap-1 rounded-full bg-green-500/10 px-1.5 py-0.5 text-[10px] font-medium text-green-600 dark:text-green-400">
+      <span className="h-1.5 w-1.5 rounded-full bg-green-500" />
+      Synced
+    </span>
+  );
+}
+
 function isSnippetCard(card: PreviewCardType) {
   return card.kind === "snippet" || card.badges.includes("snippet");
 }
@@ -146,12 +182,7 @@ export function TrayPanel() {
         <div className="mb-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <h1 className="text-[13px] font-semibold tracking-tight">Memora</h1>
-            {syncState?.loggedIn && (
-              <span className="flex items-center gap-1 rounded-full bg-green-500/10 px-1.5 py-0.5 text-[10px] font-medium text-green-600 dark:text-green-400">
-                <span className="h-1.5 w-1.5 rounded-full bg-green-500" />
-                Synced
-              </span>
-            )}
+            <SyncBadge syncState={syncState} />
           </div>
           <button
             type="button"
@@ -208,7 +239,11 @@ export function TrayPanel() {
               ? collectionsEmptyMessage
               : activeTab === "snippets"
                 ? snippetsEmptyMessage
-                : "Nothing here yet"}
+                : activeTab === "history"
+                  ? "Copy something and it'll appear here. Open this list anywhere with the Quick Paste shortcut."
+                  : activeTab === "pinned"
+                    ? "Pin important clips with the pin icon to keep them at the top, forever."
+                    : "Mark clips with the star icon to collect your favorites here."}
           </p>
         ) : (
           timeline.map((section) =>

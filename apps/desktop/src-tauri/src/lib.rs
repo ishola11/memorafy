@@ -263,6 +263,20 @@ pub fn run() {
             sync_engine.clone().run_retention_if_due();
             sync_engine.start();
 
+            // First launch: the app is tray-only, so a brand-new install
+            // would otherwise appear to do nothing. Show the welcome flow
+            // (hosted in the settings window) until onboarding completes.
+            let onboarding_done = database
+                .get_setting("onboarding_completed")
+                .ok()
+                .flatten()
+                .is_some();
+            if !onboarding_done {
+                if let Err(e) = commands::open_settings(app.handle().clone()) {
+                    tracing::warn!("could not open onboarding window: {e}");
+                }
+            }
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -291,6 +305,12 @@ pub fn run() {
             commands::get_sync_state,
             commands::auth_login,
             commands::auth_logout,
+            commands::auth_signup,
+            commands::auth_resend_confirmation,
+            commands::auth_request_password_reset,
+            commands::auth_change_password,
+            commands::get_onboarding_completed,
+            commands::set_onboarding_completed,
             commands::get_app_settings,
             commands::set_history_retention,
             commands::preview_clear_history,

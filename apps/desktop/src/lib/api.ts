@@ -155,6 +155,33 @@ export async function authLogout(): Promise<SyncState> {
   return invoke<SyncState>("auth_logout");
 }
 
+export async function authSignup(
+  email: string,
+  password: string,
+): Promise<import("@memora/shared-types").SignUpResult> {
+  return invoke("auth_signup", { email, password });
+}
+
+export async function authResendConfirmation(email: string): Promise<void> {
+  return invoke("auth_resend_confirmation", { email });
+}
+
+export async function authRequestPasswordReset(email: string): Promise<void> {
+  return invoke("auth_request_password_reset", { email });
+}
+
+export async function authChangePassword(newPassword: string): Promise<void> {
+  return invoke("auth_change_password", { newPassword });
+}
+
+export async function getOnboardingCompleted(): Promise<boolean> {
+  return invoke("get_onboarding_completed");
+}
+
+export async function setOnboardingCompleted(): Promise<void> {
+  return invoke("set_onboarding_completed");
+}
+
 export async function forceSyncNow(): Promise<import("@memora/shared-types").SyncActionResult> {
   return invoke("force_sync_now");
 }

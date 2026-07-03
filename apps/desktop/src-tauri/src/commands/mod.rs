@@ -394,6 +394,67 @@ pub fn auth_logout(state: State<'_, AppState>) -> Result<crate::sync::SyncStateD
 }
 
 #[tauri::command]
+pub async fn auth_signup(
+    state: State<'_, AppState>,
+    email: String,
+    password: String,
+) -> Result<crate::sync::SignUpResultDto, String> {
+    if password.chars().count() < 8 {
+        return Err("Password must be at least 8 characters.".into());
+    }
+    state.sync_engine.sign_up(email.trim(), &password).await
+}
+
+#[tauri::command]
+pub async fn auth_resend_confirmation(
+    state: State<'_, AppState>,
+    email: String,
+) -> Result<(), String> {
+    state.sync_engine.resend_confirmation(email.trim()).await
+}
+
+#[tauri::command]
+pub async fn auth_request_password_reset(
+    state: State<'_, AppState>,
+    email: String,
+) -> Result<(), String> {
+    state
+        .sync_engine
+        .request_password_reset(email.trim())
+        .await
+}
+
+#[tauri::command]
+pub async fn auth_change_password(
+    state: State<'_, AppState>,
+    new_password: String,
+) -> Result<(), String> {
+    if new_password.chars().count() < 8 {
+        return Err("Password must be at least 8 characters.".into());
+    }
+    state.sync_engine.change_password(&new_password).await
+}
+
+const SETTING_ONBOARDING_COMPLETED: &str = "onboarding_completed";
+
+#[tauri::command]
+pub fn get_onboarding_completed(state: State<'_, AppState>) -> Result<bool, String> {
+    Ok(state
+        .db
+        .get_setting(SETTING_ONBOARDING_COMPLETED)
+        .map_err(|e| e.to_string())?
+        .is_some())
+}
+
+#[tauri::command]
+pub fn set_onboarding_completed(state: State<'_, AppState>) -> Result<(), String> {
+    state
+        .db
+        .set_setting(SETTING_ONBOARDING_COMPLETED, "1")
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn force_sync_now(
     state: State<'_, AppState>,
 ) -> Result<crate::sync::SyncActionResultDto, String> {

@@ -16,6 +16,18 @@ import type { SyncState } from "@memora/shared-types";
 
 type AuthMode = "signin" | "signup" | "forgot" | "confirm-pending" | "reset-verify";
 
+/** Supabase hosted projects may use 6- or 8-digit email OTP depending on dashboard settings. */
+const OTP_MIN_LEN = 6;
+const OTP_MAX_LEN = 8;
+
+function isValidEmailOtp(code: string): boolean {
+  return /^\d+$/.test(code) && code.length >= OTP_MIN_LEN && code.length <= OTP_MAX_LEN;
+}
+
+function normalizeOtpInput(raw: string): string {
+  return raw.replace(/\D/g, "").slice(0, OTP_MAX_LEN);
+}
+
 const inputClass =
   "w-full rounded-lg border border-border/60 bg-surface px-3 py-2.5 text-sm outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/30";
 
@@ -130,8 +142,8 @@ export function AuthForms({
   const handleVerifySignup = (e: React.FormEvent) => {
     e.preventDefault();
     const code = otpCode.trim();
-    if (!/^\d{6}$/.test(code)) {
-      setError("Enter the 6-digit code from your email.");
+    if (!isValidEmailOtp(code)) {
+      setError(`Enter the ${OTP_MIN_LEN}- to ${OTP_MAX_LEN}-digit code from your email.`);
       return;
     }
     void run(async () => {
@@ -157,8 +169,8 @@ export function AuthForms({
   const handleVerifyRecovery = (e: React.FormEvent) => {
     e.preventDefault();
     const code = otpCode.trim();
-    if (!/^\d{6}$/.test(code)) {
-      setError("Enter the 6-digit code from your email.");
+    if (!isValidEmailOtp(code)) {
+      setError(`Enter the ${OTP_MIN_LEN}- to ${OTP_MAX_LEN}-digit code from your email.`);
       return;
     }
     if (password !== confirmPassword) {
@@ -192,23 +204,23 @@ export function AuthForms({
           <MailCheck className="mx-auto h-8 w-8 text-accent" />
           <p className="mt-3 text-sm font-medium">Enter your confirmation code</p>
           <p className="mt-1 text-sm text-muted">
-            We sent a 6-digit code to <span className="font-medium">{email}</span>. Enter it
+            We sent a verification code to <span className="font-medium">{email}</span>. Enter it
             below to finish creating your account.
           </p>
         </div>
         <div>
-          <label className="mb-1.5 block text-xs text-muted">Confirmation code</label>
+          <label className="mb-1.5 block text-xs text-muted">Verification code</label>
           <input
             type="text"
             inputMode="numeric"
             autoComplete="one-time-code"
             pattern="[0-9]*"
-            maxLength={6}
+            maxLength={OTP_MAX_LEN}
             value={otpCode}
-            onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
-            placeholder="123456"
+            onChange={(e) => setOtpCode(normalizeOtpInput(e.target.value))}
+            placeholder="Enter code"
             required
-            className={cn(inputClass, "text-center tracking-[0.3em]")}
+            className={cn(inputClass, "text-center tracking-[0.2em]")}
           />
         </div>
         {notice && <p className="text-xs text-green-600 dark:text-green-400">{notice}</p>}
@@ -216,7 +228,7 @@ export function AuthForms({
         <div className="flex flex-col gap-2">
           <button
             type="submit"
-            disabled={busy || otpCode.length !== 6}
+            disabled={busy || !isValidEmailOtp(otpCode)}
             className="flex w-full items-center justify-center gap-2 rounded-xl bg-accent py-2.5 text-sm font-medium text-white hover:bg-accent/90 disabled:opacity-50"
           >
             {busy && <Loader2 className="h-4 w-4 animate-spin" />}
@@ -250,7 +262,7 @@ export function AuthForms({
           <p className="mt-3 text-sm font-medium">Reset your password</p>
           <p className="mt-1 text-sm text-muted">
             If an account exists for <span className="font-medium">{email}</span>, we sent a
-            6-digit code. Enter it below with your new password.
+            verification code. Enter it below with your new password.
           </p>
         </div>
         <div>
@@ -260,12 +272,12 @@ export function AuthForms({
             inputMode="numeric"
             autoComplete="one-time-code"
             pattern="[0-9]*"
-            maxLength={6}
+            maxLength={OTP_MAX_LEN}
             value={otpCode}
-            onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
-            placeholder="123456"
+            onChange={(e) => setOtpCode(normalizeOtpInput(e.target.value))}
+            placeholder="Enter code"
             required
-            className={cn(inputClass, "text-center tracking-[0.3em]")}
+            className={cn(inputClass, "text-center tracking-[0.2em]")}
           />
         </div>
         <div>
@@ -288,7 +300,7 @@ export function AuthForms({
         {error && <p className="text-xs text-red-500">{error}</p>}
         <button
           type="submit"
-          disabled={busy || otpCode.length !== 6}
+          disabled={busy || !isValidEmailOtp(otpCode)}
           className="flex w-full items-center justify-center gap-2 rounded-xl bg-accent py-2.5 text-sm font-medium text-white hover:bg-accent/90 disabled:opacity-50"
         >
           {busy && <Loader2 className="h-4 w-4 animate-spin" />}
@@ -311,7 +323,7 @@ export function AuthForms({
         <div>
           <p className="text-sm font-medium">Reset your password</p>
           <p className="mt-1 text-xs text-muted">
-            Enter your account email and we'll send you a 6-digit reset code.
+            Enter your account email and we'll send you a verification code.
           </p>
         </div>
         <div>

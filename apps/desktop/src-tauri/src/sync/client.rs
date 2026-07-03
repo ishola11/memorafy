@@ -2,6 +2,7 @@ use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION};
 use serde::{Deserialize, Serialize};
 
 use super::auth::{session_from_auth_response, AuthSession, RefreshError};
+use super::auth_callback::AUTH_REDIRECT_URL;
 use super::config::SyncConfig;
 use crate::db::ItemRecord;
 
@@ -185,7 +186,11 @@ impl SupabaseClient {
     /// disabled → user is signed in immediately) or just a user record
     /// (confirmation enabled → they must click the emailed link first).
     pub async fn sign_up(&self, email: &str, password: &str) -> Result<SignUpOutcome, String> {
-        let url = format!("{}/signup", self.config.auth_url());
+        let redirect = urlencoding::encode(AUTH_REDIRECT_URL);
+        let url = format!(
+            "{}/signup?redirect_to={redirect}",
+            self.config.auth_url()
+        );
         let body = serde_json::json!({ "email": email, "password": password });
         let resp = self
             .http
@@ -216,7 +221,11 @@ impl SupabaseClient {
     /// Re-sends the sign-up confirmation email.
     pub async fn resend_confirmation(&self, email: &str) -> Result<(), String> {
         let url = format!("{}/resend", self.config.auth_url());
-        let body = serde_json::json!({ "type": "signup", "email": email });
+        let body = serde_json::json!({
+            "type": "signup",
+            "email": email,
+            "redirect_to": AUTH_REDIRECT_URL,
+        });
         let resp = self
             .http
             .post(url)
@@ -241,7 +250,10 @@ impl SupabaseClient {
     /// can't be used to probe which emails have accounts.
     pub async fn request_password_reset(&self, email: &str) -> Result<(), String> {
         let url = format!("{}/recover", self.config.auth_url());
-        let body = serde_json::json!({ "email": email });
+        let body = serde_json::json!({
+            "email": email,
+            "redirect_to": AUTH_REDIRECT_URL,
+        });
         let resp = self
             .http
             .post(url)

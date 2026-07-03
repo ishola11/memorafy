@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { ClipboardList, Cloud, Keyboard, Lock, ShieldCheck, Sparkles } from "lucide-react";
 import { AuthForms } from "@/components/settings/AuthForms";
-import { getSyncState, setOnboardingCompleted } from "@/lib/api";
+import { getSyncState, setLaunchAtLogin, setOnboardingCompleted } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 const IS_MAC = navigator.userAgent.includes("Mac");
@@ -56,6 +56,7 @@ function FeatureRow({
 export function OnboardingFlow({ onDone }: { onDone: () => void }) {
   const [step, setStep] = useState<Step>(0);
   const [syncConfigured, setSyncConfigured] = useState(true);
+  const [launchAtLogin, setLaunchAtLoginEnabled] = useState(true);
 
   useEffect(() => {
     void getSyncState()
@@ -64,6 +65,9 @@ export function OnboardingFlow({ onDone }: { onDone: () => void }) {
   }, []);
 
   const finish = () => {
+    void setLaunchAtLogin(launchAtLogin).catch((err) =>
+      console.error("could not set launch at login:", err),
+    );
     // Persist first, then transition — if persisting fails we still let the
     // user through this session and log the retry-able failure.
     void setOnboardingCompleted().catch((err) =>
@@ -101,6 +105,21 @@ export function OnboardingFlow({ onDone }: { onDone: () => void }) {
                 offline without an account.
               </FeatureRow>
             </div>
+            <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-border/60 bg-surface-elevated/40 px-4 py-3 text-left">
+              <input
+                type="checkbox"
+                checked={launchAtLogin}
+                onChange={(e) => setLaunchAtLoginEnabled(e.target.checked)}
+                className="mt-0.5 h-4 w-4 shrink-0 rounded border-border accent-accent"
+              />
+              <div>
+                <p className="text-sm font-medium">Launch at login</p>
+                <p className="mt-0.5 text-xs leading-relaxed text-muted">
+                  Start Memora when you sign in to this computer so your clipboard history
+                  is always ready in the {IS_MAC ? "menu bar" : "system tray"}.
+                </p>
+              </div>
+            </label>
             <button
               type="button"
               onClick={() => setStep(1)}

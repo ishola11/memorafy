@@ -146,7 +146,7 @@ export function AuthForms({
           <p className="text-sm font-medium">Check your inbox</p>
           <p className="mt-1 text-sm text-muted">
             We sent a confirmation link to <span className="font-medium">{email}</span>. Click
-            it, then come back and sign in.
+            it to open Memora and finish signing in.
           </p>
         </div>
         {notice && <p className="text-xs text-green-600 dark:text-green-400">{notice}</p>}
@@ -180,8 +180,7 @@ export function AuthForms({
           <p className="text-sm font-medium">Reset link sent</p>
           <p className="mt-1 text-sm text-muted">
             If an account exists for <span className="font-medium">{email}</span>, a password
-            reset link is on its way. Follow it in your browser, then sign in here with your
-            new password.
+            reset link is on its way. Click it to open Memora and choose a new password.
           </p>
         </div>
         <button
@@ -318,7 +317,7 @@ export function AuthForms({
 }
 
 /** Collapsible change-password block for the signed-in Account view. */
-export function ChangePasswordForm() {
+export function ChangePasswordForm({ onUpdated }: { onUpdated?: () => void }) {
   const [open, setOpen] = useState(false);
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -345,6 +344,7 @@ export function ChangePasswordForm() {
       setConfirmPassword("");
       setNotice("Password updated.");
       setOpen(false);
+      onUpdated?.();
     } catch (err) {
       setError(String(err));
     } finally {

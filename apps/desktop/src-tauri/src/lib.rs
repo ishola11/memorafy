@@ -57,10 +57,64 @@ impl AppState {
 /// Second launches focus the existing instance instead of spawning a
 /// duplicate watcher/sync engine that would race on the SQLite database.
 fn single_instance_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
-    tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+    tauri_plugin_single_instance::init(|app, argv, _cwd| {
+        if let Some(url) = argv.iter().find(|arg| arg.starts_with("memora://")) {
+            tracing::info!("auth deep link received via second instance");
+            handle_auth_deep_link(app, url);
+            return;
+        }
         tracing::info!("second instance launch — focusing existing instance");
         show_quick_paste(app);
     })
+}
+
+fn handle_auth_deep_link(app: &tauri::AppHandle, url: &str) {
+    let app = app.clone();
+    let url = url.to_string();
+    tauri::async_runtime::spawn(async move {
+        let state = app.state::<AppState>();
+        match state.sync_engine.handle_auth_callback(&url).await {
+            Ok(result) => {
+                tracing::info!(
+                    callback_type = %result.callback_type,
+                    "auth email link handled"
+                );
+                let _ = app.emit("auth-callback", &result);
+                let _ = commands::open_settings(app.clone());
+            }
+            Err(e) => {
+                tracing::warn!("auth callback failed: {e}");
+                let _ = app.emit("auth-callback-error", e);
+                let _ = commands::open_settings(app);
+            }
+        }
+    });
+}
+
+fn setup_auth_deep_links(app: &tauri::App) -> tauri::Result<()> {
+    use tauri_plugin_deep_link::DeepLinkExt;
+
+    #[cfg(any(windows, target_os = "linux"))]
+    {
+        if let Err(e) = app.deep_link().register_all() {
+            tracing::warn!("could not register memora:// deep link scheme: {e}");
+        }
+    }
+
+    if let Ok(Some(urls)) = app.deep_link().get_current() {
+        for url in urls {
+            handle_auth_deep_link(app.handle(), &url.to_string());
+        }
+    }
+
+    let handle = app.handle().clone();
+    app.deep_link().on_open_url(move |event| {
+        for url in event.urls() {
+            handle_auth_deep_link(&handle, &url.to_string());
+        }
+    });
+
+    Ok(())
 }
 
 #[cfg(target_os = "macos")]
@@ -69,6 +123,7 @@ fn app_builder() -> tauri::Builder<tauri::Wry> {
         .plugin(single_instance_plugin())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_deep_link::init())
         .plugin(
             tauri_plugin_autostart::Builder::new()
                 .app_name("Memora")
@@ -94,6 +149,7 @@ fn app_builder() -> tauri::Builder<tauri::Wry> {
         .plugin(single_instance_plugin())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_deep_link::init())
         .plugin(
             tauri_plugin_autostart::Builder::new()
                 .app_name("Memora")
@@ -138,6 +194,7 @@ pub fn run() {
             macos_popover::init_menubar_app_policy(app.handle());
 
             init_updater_plugin(app.handle())?;
+            setup_auth_deep_links(app)?;
 
             let app_data = app.path().app_data_dir().expect("app data dir");
             std::fs::create_dir_all(&app_data).ok();

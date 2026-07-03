@@ -128,6 +128,32 @@ pub fn session_expired(session: &AuthSession) -> bool {
     session.expires_at <= now + 60
 }
 
+/// Decode the JWT payload from a Supabase access token (no signature verification —
+/// the token was issued by Supabase over HTTPS and we use it immediately).
+pub fn claims_from_access_token(token: &str) -> Result<(String, Option<String>), String> {
+    let payload_b64 = token
+        .split('.')
+        .nth(1)
+        .ok_or("Invalid access token")?;
+    let bytes = base64::Engine::decode(
+        &base64::engine::general_purpose::URL_SAFE_NO_PAD,
+        payload_b64,
+    )
+    .map_err(|e| format!("Invalid access token payload: {e}"))?;
+    let value: serde_json::Value =
+        serde_json::from_slice(&bytes).map_err(|e| format!("Invalid access token payload: {e}"))?;
+    let user_id = value
+        .get("sub")
+        .and_then(|v| v.as_str())
+        .ok_or("Access token missing user id")?
+        .to_string();
+    let email = value
+        .get("email")
+        .and_then(|v| v.as_str())
+        .map(String::from);
+    Ok((user_id, email))
+}
+
 pub fn session_from_auth_response(value: &serde_json::Value) -> Result<AuthSession, String> {
     let access_token = value
         .get("access_token")

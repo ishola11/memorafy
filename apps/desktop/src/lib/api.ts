@@ -282,3 +282,17 @@ export function onSyncFinished(callback: (message: string) => void) {
     callback(event.payload);
   });
 }
+
+export function onAuthCallback(
+  callback: (result: import("@memora/shared-types").AuthCallbackResult) => void,
+) {
+  return listen<import("@memora/shared-types").AuthCallbackResult>("auth-callback", (event) => {
+    callback(event.payload);
+  });
+}
+
+export function onAuthCallbackError(callback: (message: string) => void) {
+  return listen<string>("auth-callback-error", (event) => {
+    callback(event.payload);
+  });
+}

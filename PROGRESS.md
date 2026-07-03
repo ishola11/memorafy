@@ -93,7 +93,7 @@
 ## Phase 4: Production Hardening — Wave 3 (2026-07-03)
 
 - [x] **Account lifecycle** — sign-up (handles both email-confirmation-on and -off Supabase projects, with resend), forgot/reset password (enumeration-safe wording), change password (Settings → Account, signed-in view), show-password toggles, friendly error mapping throughout
-- [x] **First-launch onboarding** — 3-step welcome hosted in the settings window (auto-opened on first launch since the app is tray-only): features + Quick Paste shortcut, privacy explainer (local-first, concealed-clipboard exclusion, honest not-yet-E2E disclosure), sync sign-in/sign-up/skip step that adapts when the build has no Supabase config. Verified end-to-end against the running app
+- [x] **First-launch onboarding** — 3-step welcome hosted in the settings window (auto-opened on first launch since the app is tray-only): features + Quick Paste shortcut, privacy explainer (local-first, concealed-clipboard exclusion, honest not-yet-E2E disclosure), launch-at-login toggle (on by default), sync sign-in/sign-up/skip step that adapts when the build has no Supabase config. Verified end-to-end against the running app
 - [x] **Honest sync badge** — tray badge now reflects actual sync health (green Synced / amber "N pending" / gray "Local only") instead of just login state
 - [x] **Empty states** — history/pinned/favorites tabs teach the feature instead of "Nothing here yet"
 - [x] **Startup bootstrap fix (found during verification)** — bootstrap ran with the stored (possibly expired) JWT, so device registration failed with "JWT expired" after the app had been closed >1 hour; the session is now refreshed before bootstrap
@@ -131,6 +131,7 @@ Supabase GitHub integration). The one-time dashboard setup:
 3. Set **working directory** to `services/supabase` ([docs](https://supabase.com/docs/guides/deployment/branching/github-integration#set-the-working-directory))
 4. Set the **production branch** to `master` and enable branching if you want PR preview databases
 5. Copy project URL + anon key to `apps/desktop/.env`
+6. **Authentication → URL Configuration:** set **Site URL** to `memora://auth/callback` and add the same URL under **Redirect URLs** (exact match). Email confirmation and password-reset links then reopen the desktop app instead of a browser tab.
 
 Merges to `master` then apply new files in `services/supabase/migrations/`
 automatically; PRs get isolated preview databases.

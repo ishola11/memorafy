@@ -119,6 +119,12 @@ export interface SignUpResult extends SyncState {
   needsEmailConfirmation: boolean;
 }
 
+/** Result of opening a Supabase email link in the Memora desktop app. */
+export interface AuthCallbackResult extends SyncState {
+  callbackType: string;
+  needsNewPassword: boolean;
+}
+
 export interface SyncActionResult extends SyncState {
   message: string;
   pendingBefore: number;

@@ -25,6 +25,8 @@ import {
   getCollections,
   getDevices,
   getSyncState,
+  onAuthCallback,
+  onAuthCallbackError,
   openLogsDir,
   repairSync,
   setHistoryRetention,
@@ -99,6 +101,8 @@ export function SettingsPanel() {
   const [appVersion, setAppVersion] = useState<string | null>(null);
   const [updateMessage, setUpdateMessage] = useState<string | null>(null);
   const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [recoveryPasswordPending, setRecoveryPasswordPending] = useState(false);
+  const [authNotice, setAuthNotice] = useState<string | null>(null);
 
   useEffect(() => {
     void getAppVersion().then(setAppVersion).catch(() => setAppVersion(null));
@@ -120,6 +124,33 @@ export function SettingsPanel() {
 
   useEffect(() => {
     void refresh();
+  }, []);
+
+  useEffect(() => {
+    const unsubs: Array<() => void> = [];
+    void onAuthCallback((result) => {
+      setState(result);
+      setSection("account");
+      setAuthNotice(null);
+      setError(null);
+      if (result.needsNewPassword) {
+        setRecoveryPasswordPending(true);
+      } else if (result.callbackType === "signup") {
+        setAuthNotice("Email confirmed — you're signed in.");
+      } else {
+        setAuthNotice("Signed in successfully.");
+      }
+      void refresh();
+    }).then((unlisten) => unsubs.push(unlisten));
+
+    void onAuthCallbackError((message) => {
+      setSection("account");
+      setError(message);
+    }).then((unlisten) => unsubs.push(unlisten));
+
+    return () => {
+      unsubs.forEach((fn) => fn());
+    };
   }, []);
 
   const handleLogout = async () => {
@@ -278,6 +309,20 @@ export function SettingsPanel() {
 
               {state.loggedIn ? (
                 <div className="space-y-4">
+                  {authNotice && (
+                    <p className="rounded-xl border border-green-500/30 bg-green-500/10 px-4 py-3 text-sm text-green-700 dark:text-green-300">
+                      {authNotice}
+                    </p>
+                  )}
+                  {recoveryPasswordPending && (
+                    <div className="rounded-xl border border-accent/40 bg-accent/10 px-4 py-3 text-sm">
+                      <p className="font-medium">Choose a new password</p>
+                      <p className="mt-1 text-xs text-muted">
+                        Your reset link worked. Set a new password below to finish resetting
+                        your account.
+                      </p>
+                    </div>
+                  )}
                   {state.e2eStatus === "locked" && (
                     <EncryptionLockedCard
                       onResolved={(sync) => {
@@ -349,7 +394,12 @@ export function SettingsPanel() {
                   {error && (
                     <p className="text-center text-sm text-red-500">{error}</p>
                   )}
-                  <ChangePasswordForm />
+                  <ChangePasswordForm
+                    onUpdated={() => {
+                      setRecoveryPasswordPending(false);
+                      setAuthNotice("Password updated.");
+                    }}
+                  />
                   <button
                     type="button"
                     onClick={() => void handleLogout()}

@@ -1,4 +1,5 @@
 mod auth;
+mod auth_callback;
 pub mod client;
 mod config;
 mod realtime;
@@ -93,6 +94,17 @@ pub struct SignUpResultDto {
     /// True when the account was created but the user must click the
     /// confirmation link emailed to them before they can sign in.
     pub needs_email_confirmation: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthCallbackResultDto {
+    #[serde(flatten)]
+    pub state: SyncStateDto,
+    /// Supabase callback type: signup, recovery, invite, etc.
+    pub callback_type: String,
+    /// True when the user must choose a new password (password-reset link).
+    pub needs_new_password: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -522,6 +534,55 @@ impl SyncEngine {
     pub async fn request_password_reset(&self, email: &str) -> Result<(), String> {
         let client = self.client.as_ref().ok_or("Supabase not configured")?;
         client.request_password_reset(email).await
+    }
+
+    /// Complete sign-in from a Supabase email link opened via the `memora://` deep link.
+    pub async fn handle_auth_callback(&self, url: &str) -> Result<AuthCallbackResultDto, String> {
+        let _client = self.client.as_ref().ok_or("Supabase not configured")?;
+        let (params, callback_type) = auth_callback::parse_auth_callback_url(url)?;
+
+        if let Some(err) = params.get("error") {
+            let detail = params
+                .get("error_description")
+                .map(String::as_str)
+                .unwrap_or("");
+            return Err(if detail.is_empty() {
+                format!("Sign-in link failed: {err}")
+            } else {
+                format!("Sign-in link failed: {detail}")
+            });
+        }
+
+        let access_token = params
+            .get("access_token")
+            .ok_or("Auth link is missing an access token. Try requesting a new email.")?;
+        let refresh_token = params
+            .get("refresh_token")
+            .ok_or("Auth link is missing a refresh token. Try requesting a new email.")?;
+        let expires_in = params.get("expires_in").and_then(|v| v.parse().ok());
+
+        let session = auth_callback::session_from_callback_tokens(
+            access_token,
+            refresh_token,
+            expires_in,
+        )?;
+        let (_, email) = auth::claims_from_access_token(access_token)?;
+        let email = email.unwrap_or_default();
+
+        auth::save_session(&self.db, &session, &email)?;
+
+        if callback_type == "recovery" {
+            self.clear_dek();
+        }
+
+        self.bootstrap_after_auth(&session).await?;
+        let _ = self.sync_tick().await;
+
+        Ok(AuthCallbackResultDto {
+            state: self.get_state()?,
+            callback_type: callback_type.clone(),
+            needs_new_password: callback_type == "recovery",
+        })
     }
 
     pub async fn change_password(&self, new_password: &str) -> Result<(), String> {

@@ -142,6 +142,30 @@ pub fn run() {
             let app_data = app.path().app_data_dir().expect("app data dir");
             std::fs::create_dir_all(&app_data).ok();
 
+            // "Erase all local data" writes a sentinel and restarts; the
+            // wipe happens here, before the database is opened (files can't
+            // be deleted while the previous instance held them).
+            let reset_sentinel = app_data.join("reset_pending");
+            if reset_sentinel.exists() {
+                tracing::warn!("reset sentinel found — erasing local data");
+                for name in ["memora.db", "memora.db-wal", "memora.db-shm"] {
+                    if let Err(e) = std::fs::remove_file(app_data.join(name)) {
+                        if e.kind() != std::io::ErrorKind::NotFound {
+                            tracing::warn!("erase {name}: {e}");
+                        }
+                    }
+                }
+                if let Err(e) = std::fs::remove_dir_all(app_data.join("blobs")) {
+                    if e.kind() != std::io::ErrorKind::NotFound {
+                        tracing::warn!("erase blobs: {e}");
+                    }
+                }
+                if let Err(e) = std::fs::remove_file(&reset_sentinel) {
+                    tracing::warn!("remove reset sentinel: {e}");
+                }
+                tracing::info!("local data erased — starting fresh");
+            }
+
             let database = Arc::new(db::Database::open(app_data.join("memora.db"))?);
             let device_id = database.ensure_device()?;
             let device_name = database.get_device_name(&device_id)?;
@@ -318,6 +342,7 @@ pub fn run() {
             commands::reset_sync_encryption,
             commands::get_onboarding_completed,
             commands::set_onboarding_completed,
+            commands::erase_all_data,
             commands::get_app_settings,
             commands::set_history_retention,
             commands::preview_clear_history,

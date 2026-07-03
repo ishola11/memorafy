@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import {
   authLogout,
+  eraseAllData,
   forceSyncNow,
   getAppSettings,
   getCollections,
@@ -460,6 +461,10 @@ export function SettingsPanel() {
                   className="h-4 w-4 rounded border-border accent-accent"
                 />
               </label>
+
+              <div className="border-t border-border/60 pt-6">
+                <EraseAllDataCard />
+              </div>
             </div>
           )}
 
@@ -560,6 +565,71 @@ export function SettingsPanel() {
           )}
         </div>
       </main>
+    </div>
+  );
+}
+
+/** Two-step destructive action: wipe every trace of local data and restart. */
+function EraseAllDataCard() {
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleErase = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await eraseAllData(); // restarts the app; only reached on failure
+    } catch (err) {
+      setError(String(err));
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="space-y-3">
+      <div>
+        <h3 className="text-sm font-semibold text-red-600 dark:text-red-400">Danger zone</h3>
+        <p className="mt-1 text-xs leading-relaxed text-muted">
+          Erase all local data — clipboard history, snippets, settings, and sign-in — and
+          restart Memora as a fresh install. Cloud data is not touched (use History → Clear →
+          Everywhere for that). This also prepares the app for a clean uninstall.
+        </p>
+      </div>
+      {!confirming ? (
+        <button
+          type="button"
+          onClick={() => setConfirming(true)}
+          className="w-full rounded-xl border border-red-500/40 py-2.5 text-sm text-red-600 transition-colors hover:bg-red-500/10 dark:text-red-400"
+        >
+          Erase all local data…
+        </button>
+      ) : (
+        <div className="space-y-2 rounded-xl border border-red-500/40 bg-red-500/10 p-4">
+          <p className="text-xs font-medium text-red-700 dark:text-red-300">
+            This permanently deletes everything Memora stores on this device. Are you sure?
+          </p>
+          {error && <p className="text-xs text-red-500">{error}</p>}
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => setConfirming(false)}
+              disabled={busy}
+              className="flex-1 rounded-lg border border-border/60 py-2 text-xs hover:bg-surface-elevated"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleErase()}
+              disabled={busy}
+              className="flex-1 rounded-lg bg-red-600 py-2 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-50"
+            >
+              {busy ? 'Erasing…' : 'Erase and restart'}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

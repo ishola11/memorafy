@@ -190,6 +190,11 @@ export async function setOnboardingCompleted(): Promise<void> {
   return invoke("set_onboarding_completed");
 }
 
+/** Erases all local data (history, settings, keys) and restarts the app. */
+export async function eraseAllData(): Promise<void> {
+  return invoke("erase_all_data");
+}
+
 export async function forceSyncNow(): Promise<import("@memora/shared-types").SyncActionResult> {
   return invoke("force_sync_now");
 }

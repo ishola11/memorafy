@@ -455,6 +455,31 @@ pub async fn reset_sync_encryption(
     state.sync_engine.reset_encryption(&password).await
 }
 
+/// Erase every trace of local data and restart fresh: clipboard history,
+/// blobs, settings, cached session, and encryption key. Cloud data is NOT
+/// touched — that's History → Clear (Everywhere). The actual file deletion
+/// happens on next launch via a sentinel, because this process still holds
+/// the database open.
+#[tauri::command]
+pub fn erase_all_data(app: AppHandle) -> Result<(), String> {
+    if let Err(e) = crate::keychain::clear() {
+        tracing::warn!("erase: keychain session clear: {e}");
+    }
+    if let Err(e) = crate::keychain::clear_dek() {
+        tracing::warn!("erase: keychain key clear: {e}");
+    }
+
+    let app_data = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("could not resolve app data dir: {e}"))?;
+    std::fs::write(app_data.join("reset_pending"), b"1")
+        .map_err(|e| format!("could not schedule the reset: {e}"))?;
+
+    tracing::warn!("local data erase scheduled — restarting");
+    app.restart();
+}
+
 const SETTING_ONBOARDING_COMPLETED: &str = "onboarding_completed";
 
 #[tauri::command]

@@ -174,6 +174,14 @@ export async function authChangePassword(newPassword: string): Promise<void> {
   return invoke("auth_change_password", { newPassword });
 }
 
+export async function unlockSyncEncryption(password: string): Promise<SyncState> {
+  return invoke<SyncState>("unlock_sync_encryption", { password });
+}
+
+export async function resetSyncEncryption(password: string): Promise<SyncState> {
+  return invoke<SyncState>("reset_sync_encryption", { password });
+}
+
 export async function getOnboardingCompleted(): Promise<boolean> {
   return invoke("get_onboarding_completed");
 }

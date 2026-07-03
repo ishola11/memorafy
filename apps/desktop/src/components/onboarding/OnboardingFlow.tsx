@@ -129,9 +129,10 @@ export function OnboardingFlow({ onDone }: { onDone: () => void }) {
                 Content marked confidential by password managers is never captured. You can
                 also pause capture any time from the tray.
               </FeatureRow>
-              <FeatureRow icon={Cloud} title="If you enable sync">
-                Clips are stored in your own account and only visible to you. Synced text is
-                not yet end-to-end encrypted — avoid syncing anything highly sensitive.
+              <FeatureRow icon={Cloud} title="End-to-end encrypted sync">
+                If you enable sync, clips are encrypted on your device with a key derived
+                from your password — the server can't read them. One caveat: resetting a
+                forgotten password makes previously synced clips unreadable.
               </FeatureRow>
             </div>
             <div className="flex gap-2">

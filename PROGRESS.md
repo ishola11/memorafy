@@ -104,6 +104,16 @@
 - [x] **Tray "Sync now"** — new tray-menu action runs a full pull+push in the background and reports the outcome as a toast in open panels
 - [x] **Icon redesign** — new stacked-clip-cards mark (mirrors the product UI) with gradient background; full icon set regenerated via `tauri icon`; matching monochrome macOS menubar template; verified legible at Windows tray size
 
+## Phase 4: End-to-End Encryption (2026-07-03)
+
+- [x] **E2E scheme** — item content (plain_text, titles, previews, URLs, triggers) is encrypted client-side with XChaCha20-Poly1305 under a random per-account data key (DEK); the DEK is wrapped with an Argon2id key derived from the user's password and only the wrapped blob is stored server-side (`user_encryption_keys` migration). The server can no longer read clipboard content
+- [x] **Private dedupe** — cloud `content_hash` is now an HMAC under a DEK-derived key, so the server can't test clips for equality against guesses; local dedupe still uses plain SHA-256 (recomputed on decrypt)
+- [x] **Key lifecycle** — generated at sign-up, unwrapped at sign-in, cached in the OS keychain per device; password *change* re-wraps (no data loss); password *reset* auto-heals if any signed-in device still holds the key, otherwise Settings → Account shows an Unlock card (re-enter password) with a clearly destructive "Reset sync encryption" fallback
+- [x] **No plaintext downgrade** — while the key is locked, item pushes pause (deletions still sync) and the tray badge shows "Sync locked"; nothing is ever uploaded unencrypted once E2E is active
+- [x] **Backfill** — one-time re-push re-encrypts previously synced plaintext rows (including soft-deleted ones)
+- [x] Verified live: locked-state detection on startup ("no cached encryption key — sync decryption locked until next sign-in") + 7 new crypto unit tests (roundtrip, tamper rejection, wrong-password unwrap failure, KDF determinism)
+- Known limitations: collection *names* and structural metadata (timestamps, pinned flags, char counts) are not encrypted; macOS concealed-clipboard detection still pending
+
 ## Next Up
 
 1. Run `003_collections_realtime.sql` in Supabase if project predates this update

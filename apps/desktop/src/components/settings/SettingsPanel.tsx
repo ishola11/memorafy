@@ -33,7 +33,11 @@ import {
 import { checkForUpdates, getAppVersion } from "@/lib/updater";
 import { applyTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
-import { AuthForms, ChangePasswordForm } from "@/components/settings/AuthForms";
+import {
+  AuthForms,
+  ChangePasswordForm,
+  EncryptionLockedCard,
+} from "@/components/settings/AuthForms";
 import { ClearHistorySettings } from "@/components/settings/ClearHistorySettings";
 import { CollectionsSettings } from "@/components/settings/CollectionsSettings";
 import { FeedbackSettings } from "@/components/settings/FeedbackSettings";
@@ -273,6 +277,14 @@ export function SettingsPanel() {
 
               {state.loggedIn ? (
                 <div className="space-y-4">
+                  {state.e2eStatus === "locked" && (
+                    <EncryptionLockedCard
+                      onResolved={(sync) => {
+                        setState(sync);
+                        void refresh();
+                      }}
+                    />
+                  )}
                   <div className="rounded-xl border border-border/60 bg-surface-elevated/50 p-4">
                     <div className="flex items-center gap-3">
                       <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent/15">

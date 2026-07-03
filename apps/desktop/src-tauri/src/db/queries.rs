@@ -1167,6 +1167,17 @@ impl Database {
         Ok(cleared as i64)
     }
 
+    /// Flag every item (including soft-deleted ones — their cloud rows also
+    /// hold plaintext) for re-push. Used by the one-time E2E encryption
+    /// backfill so pre-encryption cloud rows get overwritten as ciphertext.
+    pub fn mark_all_items_pending(&self) -> Result<i64, rusqlite::Error> {
+        let changed = self
+            .conn
+            .lock()
+            .execute("UPDATE items SET sync_status = 'pending'", [])?;
+        Ok(changed as i64)
+    }
+
     /// Remove completed queue rows so the table doesn't grow without bound.
     pub fn prune_synced_queue_rows(&self) -> Result<i64, rusqlite::Error> {
         let conn = self.conn.lock();

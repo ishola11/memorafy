@@ -2,6 +2,7 @@
 
 pub mod clipboard;
 pub mod commands;
+pub mod crypto;
 pub mod db;
 pub mod feedback;
 pub mod keychain;
@@ -313,6 +314,8 @@ pub fn run() {
             commands::auth_resend_confirmation,
             commands::auth_request_password_reset,
             commands::auth_change_password,
+            commands::unlock_sync_encryption,
+            commands::reset_sync_encryption,
             commands::get_onboarding_completed,
             commands::set_onboarding_completed,
             commands::get_app_settings,

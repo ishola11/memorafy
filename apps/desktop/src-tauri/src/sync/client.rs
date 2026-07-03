@@ -27,6 +27,9 @@ pub struct CloudItem {
     pub source_device_id: Option<String>,
     pub is_pinned: bool,
     pub is_favorited: bool,
+    /// True when the content fields carry client-side ciphertext.
+    #[serde(default)]
+    pub encrypted: bool,
     pub created_at: String,
     pub updated_at: String,
     pub deleted_at: Option<String>,
@@ -333,8 +336,13 @@ impl SupabaseClient {
         session_from_auth_response(&value).map_err(RefreshError::Network)
     }
 
-    pub async fn upsert_item(&self, session: &AuthSession, item: &ItemRecord) -> Result<(), String> {
-        let cloud = item_to_cloud(session, item);
+    pub async fn upsert_item(
+        &self,
+        session: &AuthSession,
+        item: &ItemRecord,
+        dek: Option<&crate::crypto::Key>,
+    ) -> Result<(), String> {
+        let cloud = item_to_cloud(session, item, dek);
         let url = format!("{}/items", self.config.rest_url());
         let resp = self
             .http
@@ -406,6 +414,66 @@ impl SupabaseClient {
         }
 
         resp.json().await.map_err(|e| e.to_string())
+    }
+
+    /// The user's wrapped (password-encrypted) data key, if one exists.
+    pub async fn fetch_user_key(&self, session: &AuthSession) -> Result<Option<String>, String> {
+        let url = format!(
+            "{}/user_encryption_keys?select=wrapped_dek&limit=1",
+            self.config.rest_url()
+        );
+        let resp = self
+            .http
+            .get(url)
+            .headers(auth_headers(&self.config, session)?)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+
+        if !resp.status().is_success() {
+            let text = resp.text().await.unwrap_or_default();
+            if text.contains("42P01") || text.contains("does not exist") {
+                return Err(
+                    "Encryption key storage is not configured on the server. Apply the migrations in services/supabase/migrations.".into(),
+                );
+            }
+            return Err(format!("Fetch encryption key failed: {text}"));
+        }
+
+        let rows: Vec<serde_json::Value> = resp.json().await.map_err(|e| e.to_string())?;
+        Ok(rows
+            .first()
+            .and_then(|r| r.get("wrapped_dek"))
+            .and_then(|v| v.as_str())
+            .map(String::from))
+    }
+
+    pub async fn upsert_user_key(
+        &self,
+        session: &AuthSession,
+        wrapped_dek: &str,
+    ) -> Result<(), String> {
+        let url = format!("{}/user_encryption_keys", self.config.rest_url());
+        let body = serde_json::json!({
+            "user_id": session.user_id,
+            "wrapped_dek": wrapped_dek,
+            "updated_at": chrono::Utc::now().to_rfc3339(),
+        });
+        let resp = self
+            .http
+            .post(url)
+            .headers(auth_headers(&self.config, session)?)
+            .header("Prefer", "resolution=merge-duplicates")
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+
+        if !resp.status().is_success() {
+            let text = resp.text().await.unwrap_or_default();
+            return Err(format!("Store encryption key failed: {text}"));
+        }
+        Ok(())
     }
 
     pub async fn register_device(
@@ -643,18 +711,32 @@ fn auth_headers(config: &SyncConfig, session: &AuthSession) -> Result<HeaderMap,
     Ok(headers)
 }
 
-fn item_to_cloud(session: &AuthSession, item: &ItemRecord) -> CloudItem {
+/// Builds the cloud payload. With a DEK, all content-bearing fields are
+/// encrypted client-side and `content_hash` becomes an HMAC — the server
+/// stores nothing that reveals what the user copied (or lets it test
+/// equality against guesses). Structural metadata (kind, flags, timestamps)
+/// stays plaintext; the server needs it for ordering and soft-deletes.
+fn item_to_cloud(session: &AuthSession, item: &ItemRecord, dek: Option<&crate::crypto::Key>) -> CloudItem {
+    use crate::crypto::{encrypt_str, keyed_content_hash};
+
+    let enc = |value: &Option<String>| -> Option<String> {
+        match (dek, value) {
+            (Some(key), Some(v)) => Some(encrypt_str(key, v)),
+            _ => value.clone(),
+        }
+    };
+
     CloudItem {
         id: item.id.clone(),
         user_id: session.user_id.clone(),
         kind: item.kind.clone(),
         content_type: item.content_type.clone(),
-        display_title: item.display_title.clone(),
-        preview_text: item.preview_text.clone(),
+        display_title: enc(&item.display_title),
+        preview_text: enc(&item.preview_text),
         char_count: item.char_count,
-        url: item.url.clone(),
-        url_title: item.url_title.clone(),
-        url_domain: item.url_domain.clone(),
+        url: enc(&item.url),
+        url_title: enc(&item.url_title),
+        url_domain: enc(&item.url_domain),
         code_language: item.code_language.clone(),
         line_count: item.line_count,
         // Never push the local absolute filesystem path (leaks the
@@ -663,12 +745,16 @@ fn item_to_cloud(session: &AuthSession, item: &ItemRecord) -> CloudItem {
         // local-only until that lands).
         blob_path: None,
         blob_size: item.blob_size,
-        content_hash: item.content_hash.clone(),
-        plain_text: item.plain_text.clone(),
-        trigger: item.trigger.clone(),
+        content_hash: match dek {
+            Some(key) => keyed_content_hash(key, &item.content_hash),
+            None => item.content_hash.clone(),
+        },
+        plain_text: enc(&item.plain_text),
+        trigger: enc(&item.trigger),
         source_device_id: item.source_device_id.clone(),
         is_pinned: item.is_pinned,
         is_favorited: item.is_favorited,
+        encrypted: dek.is_some(),
         created_at: item.created_at.clone(),
         updated_at: item.updated_at.clone(),
         deleted_at: item.deleted_at.clone(),

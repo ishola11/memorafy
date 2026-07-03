@@ -51,6 +51,11 @@ urlencoding = "2"
 # only pulls in its platform-gated dependency, so listing both here is safe
 # on every target.
 keyring = { version = "3", features = ["windows-native", "apple-native"] }
+# End-to-end encryption of synced clipboard content.
+chacha20poly1305 = "0.10"
+argon2 = "0.5"
+hmac = "0.12"
+rand = "0.8"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 tauri-plugin-nspopover = { git = "https://github.com/freethinkel/tauri-nspopover-plugin.git", version = "4.1.0" }

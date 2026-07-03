@@ -439,6 +439,22 @@ pub async fn auth_change_password(
     state.sync_engine.change_password(&new_password).await
 }
 
+#[tauri::command]
+pub async fn unlock_sync_encryption(
+    state: State<'_, AppState>,
+    password: String,
+) -> Result<crate::sync::SyncStateDto, String> {
+    state.sync_engine.unlock_encryption(&password).await
+}
+
+#[tauri::command]
+pub async fn reset_sync_encryption(
+    state: State<'_, AppState>,
+    password: String,
+) -> Result<crate::sync::SyncStateDto, String> {
+    state.sync_engine.reset_encryption(&password).await
+}
+
 const SETTING_ONBOARDING_COMPLETED: &str = "onboarding_completed";
 
 #[tauri::command]

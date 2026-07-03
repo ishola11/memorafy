@@ -97,6 +97,13 @@ export interface SyncQueueItem {
   retryCount: number;
 }
 
+/**
+ * End-to-end encryption key state: 'off' while signed out or unconfigured,
+ * 'ready' when clips sync encrypted, 'locked' when the key is unavailable
+ * (e.g. after a password reset) and sync decryption is paused.
+ */
+export type E2eStatus = 'off' | 'ready' | 'locked';
+
 export interface SyncState {
   configured: boolean;
   loggedIn: boolean;
@@ -104,6 +111,7 @@ export interface SyncState {
   pendingCount: number;
   lastSyncAt: string | null;
   cloudDeviceCount: number;
+  e2eStatus: E2eStatus;
 }
 
 export interface SignUpResult extends SyncState {

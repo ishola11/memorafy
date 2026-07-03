@@ -34,6 +34,8 @@ const BACKOFF_BASE: Duration = Duration::from_secs(5);
 const BACKOFF_MAX: Duration = Duration::from_secs(600);
 /// Cursor (server `updated_at`) of the newest change we've pulled.
 const SETTING_LAST_PULL_CURSOR: &str = "last_pull_cursor";
+/// Set once existing plaintext cloud items have been re-pushed encrypted.
+const SETTING_E2E_BACKFILL_DONE: &str = "e2e_backfill_done";
 
 #[derive(Clone, Copy)]
 struct BackoffEntry {
@@ -53,6 +55,10 @@ pub struct SyncEngine {
     /// Per-entity push backoff (in-memory; resets on restart, which is fine —
     /// a restart is a reasonable moment to retry everything once).
     backoff: Mutex<HashMap<String, BackoffEntry>>,
+    /// End-to-end encryption data key, unwrapped at sign-in and cached in
+    /// the OS keychain. `None` while signed out or when the key is locked
+    /// (e.g. the password was reset elsewhere and no device holds the key).
+    dek: Mutex<Option<crate::crypto::Key>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -64,6 +70,9 @@ pub struct SyncStateDto {
     pub pending_count: i64,
     pub last_sync_at: Option<String>,
     pub cloud_device_count: i64,
+    /// "off" (signed out / not configured), "ready", or "locked" (the
+    /// encryption key is unavailable — e.g. after a password reset).
+    pub e2e_status: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -131,6 +140,230 @@ impl SyncEngine {
             last_pull: Mutex::new(None),
             work_notify: Notify::new(),
             backoff: Mutex::new(HashMap::new()),
+            dek: Mutex::new(None),
+        }
+    }
+
+    // ── End-to-end encryption key lifecycle ─────────────────────────────
+
+    pub fn dek(&self) -> Option<crate::crypto::Key> {
+        *self.dek.lock()
+    }
+
+    fn set_dek(&self, user_id: &str, dek: crate::crypto::Key) {
+        *self.dek.lock() = Some(dek);
+        if let Err(e) = crate::keychain::store_dek(&crate::crypto::encode_cached_dek(user_id, &dek)) {
+            // Non-fatal: the key still works this session; the next sign-in
+            // re-unwraps it from the server copy.
+            tracing::warn!("could not cache encryption key in keychain: {e}");
+        }
+        self.maybe_start_encryption_backfill();
+    }
+
+    fn clear_dek(&self) {
+        *self.dek.lock() = None;
+        if let Err(e) = crate::keychain::clear_dek() {
+            tracing::debug!("keychain DEK clear: {e}");
+        }
+    }
+
+    /// Restore the cached key at startup (no password available then).
+    fn load_dek_from_keychain(&self) {
+        let user_id = match self.db.get_setting(SETTING_LAST_AUTH_USER_ID) {
+            Ok(Some(id)) => id,
+            _ => return,
+        };
+        match crate::keychain::load_dek() {
+            Ok(Some(cached)) => {
+                if let Some(dek) = crate::crypto::decode_cached_dek(&user_id, &cached) {
+                    *self.dek.lock() = Some(dek);
+                    self.maybe_start_encryption_backfill();
+                } else {
+                    tracing::warn!("cached encryption key belongs to a different account — ignoring");
+                }
+            }
+            Ok(None) => tracing::info!(
+                "no cached encryption key — sync decryption locked until next sign-in"
+            ),
+            Err(e) => tracing::warn!("could not read cached encryption key: {e}"),
+        }
+    }
+
+    /// Establish the DEK during sign-in/sign-up, when the password is
+    /// available. Handles: first device (generate), returning device
+    /// (unwrap), password changed elsewhere with a locally cached key
+    /// (auto-heal by re-wrapping), and the truly locked case.
+    async fn ensure_dek_with_password(
+        &self,
+        session: &AuthSession,
+        password: &str,
+    ) -> Result<(), String> {
+        let client = self.client.as_ref().ok_or("Supabase not configured")?;
+        let kek = crate::crypto::derive_kek(password, &session.user_id)?;
+
+        match client.fetch_user_key(session).await? {
+            Some(wrapped) => match crate::crypto::unwrap_dek(&kek, &wrapped) {
+                Ok(dek) => {
+                    self.set_dek(&session.user_id, dek);
+                }
+                Err(_) => {
+                    // The server copy was wrapped under a different password
+                    // (reset elsewhere). A device that still holds the key
+                    // can heal the account by re-wrapping under the new one.
+                    let cached = crate::keychain::load_dek()
+                        .ok()
+                        .flatten()
+                        .and_then(|c| crate::crypto::decode_cached_dek(&session.user_id, &c));
+                    match cached {
+                        Some(dek) => {
+                            let rewrapped = crate::crypto::wrap_dek(&kek, &dek);
+                            client.upsert_user_key(session, &rewrapped).await?;
+                            self.set_dek(&session.user_id, dek);
+                            tracing::info!(
+                                "encryption key re-wrapped under the new password (auto-heal)"
+                            );
+                        }
+                        None => {
+                            *self.dek.lock() = None;
+                            tracing::warn!(
+                                "encryption key locked: server key was wrapped under a \
+                                 different password and no local copy exists"
+                            );
+                        }
+                    }
+                }
+            },
+            None => {
+                let dek = crate::crypto::generate_key();
+                let wrapped = crate::crypto::wrap_dek(&kek, &dek);
+                client.upsert_user_key(session, &wrapped).await?;
+                self.set_dek(&session.user_id, dek);
+                tracing::info!("generated a new end-to-end encryption key for this account");
+            }
+        }
+        Ok(())
+    }
+
+    /// Settings → "Unlock": the startup path has no password, so a user
+    /// whose keychain lost the cached key re-enters it here.
+    pub async fn unlock_encryption(&self, password: &str) -> Result<SyncStateDto, String> {
+        let session = ensure_session(self).await.map_err(|e| e.to_string())?;
+        self.ensure_dek_with_password(&session, password).await?;
+        if self.dek().is_none() {
+            return Err(
+                "That password doesn't match the encryption key. If you reset your password \
+                 recently, sign in on a device that still has Memora unlocked — or use \
+                 \"Reset sync encryption\" to start a new key."
+                    .into(),
+            );
+        }
+        // Items skipped while locked advanced the pull cursor past them —
+        // a full bootstrap recovers everything now that we can decrypt.
+        self.bootstrap_after_auth(&session).await?;
+        self.get_state()
+    }
+
+    /// Settings → "Reset sync encryption" (destructive): generates a new
+    /// key. Previously synced clips encrypted under the lost key become
+    /// permanently unreadable and are purged from this device's view.
+    pub async fn reset_encryption(&self, password: &str) -> Result<SyncStateDto, String> {
+        let session = ensure_session(self).await.map_err(|e| e.to_string())?;
+        let client = self.client.as_ref().ok_or("Supabase not configured")?;
+
+        let kek = crate::crypto::derive_kek(password, &session.user_id)?;
+        let dek = crate::crypto::generate_key();
+        let wrapped = crate::crypto::wrap_dek(&kek, &dek);
+        client.upsert_user_key(&session, &wrapped).await?;
+        self.set_dek(&session.user_id, dek);
+        // Force a full re-encrypt push of everything this device still has.
+        let _ = self.db.delete_setting(SETTING_E2E_BACKFILL_DONE);
+        self.maybe_start_encryption_backfill();
+        tracing::warn!("sync encryption key was reset — clips from the old key are unrecoverable");
+        self.get_state()
+    }
+
+    /// Re-wrap the existing DEK when the user changes their password while
+    /// signed in (no data loss, unlike an email reset).
+    fn rewrap_key_for_new_password(
+        &self,
+        session: &AuthSession,
+        new_password: &str,
+    ) -> Result<Option<String>, String> {
+        let Some(dek) = self.dek() else {
+            return Ok(None);
+        };
+        let kek = crate::crypto::derive_kek(new_password, &session.user_id)?;
+        Ok(Some(crate::crypto::wrap_dek(&kek, &dek)))
+    }
+
+    /// Decrypts an incoming cloud item. Returns `None` when the item is
+    /// encrypted but can't be decrypted (no key, or key mismatch) — the
+    /// caller must skip it rather than store ciphertext as content.
+    fn decrypt_incoming(&self, mut item: client::CloudItem) -> Option<client::CloudItem> {
+        if !item.encrypted {
+            return Some(item);
+        }
+        let Some(dek) = self.dek() else {
+            tracing::debug!("skipping encrypted item {} — encryption key locked", item.id);
+            return None;
+        };
+
+        let mut failed = false;
+        let mut dec = |value: &mut Option<String>| {
+            if let Some(v) = value.as_deref() {
+                if crate::crypto::is_encrypted_value(v) {
+                    match crate::crypto::decrypt_str(&dek, v) {
+                        Ok(plain) => *value = Some(plain),
+                        Err(_) => failed = true,
+                    }
+                }
+            }
+        };
+        dec(&mut item.display_title);
+        dec(&mut item.preview_text);
+        dec(&mut item.url);
+        dec(&mut item.url_title);
+        dec(&mut item.url_domain);
+        dec(&mut item.plain_text);
+        dec(&mut item.trigger);
+
+        if failed {
+            tracing::warn!("could not decrypt item {} — wrong key generation? skipping", item.id);
+            return None;
+        }
+
+        // The cloud hash is an HMAC; local dedupe compares plain SHA-256,
+        // so recompute the local-format hash from the decrypted content.
+        if let Some(text) = item.plain_text.as_deref() {
+            item.content_hash =
+                crate::clipboard::hash_content(&item.content_type, Some(text), None);
+        }
+        Some(item)
+    }
+
+    /// One-time migration: re-push every local item so plaintext rows
+    /// uploaded before E2E encryption get overwritten with ciphertext.
+    fn maybe_start_encryption_backfill(&self) {
+        let done = self
+            .db
+            .get_setting(SETTING_E2E_BACKFILL_DONE)
+            .ok()
+            .flatten()
+            .is_some();
+        if done {
+            return;
+        }
+        match self.db.mark_all_items_pending() {
+            Ok(n) => {
+                if let Err(e) = self.db.set_setting(SETTING_E2E_BACKFILL_DONE, "1") {
+                    tracing::warn!("could not record encryption backfill: {e}");
+                }
+                if n > 0 {
+                    tracing::info!("re-encrypting {n} previously synced item(s) in the cloud");
+                    self.request_sync();
+                }
+            }
+            Err(e) => tracing::warn!("encryption backfill: {e}"),
         }
     }
 
@@ -190,13 +423,23 @@ impl SyncEngine {
             .get_setting("user_email")
             .map_err(|e| e.to_string())?;
 
+        let logged_in = session.is_some();
+        let e2e_status = if !self.is_configured() || !logged_in {
+            "off"
+        } else if self.dek().is_some() {
+            "ready"
+        } else {
+            "locked"
+        };
+
         Ok(SyncStateDto {
             configured: self.is_configured(),
-            logged_in: session.is_some(),
+            logged_in,
             user_email: email,
             pending_count: pending,
             last_sync_at: last_sync,
             cloud_device_count: self.db.get_devices().map(|d| d.len() as i64).unwrap_or(0),
+            e2e_status: e2e_status.to_string(),
         })
     }
 
@@ -204,6 +447,10 @@ impl SyncEngine {
         let client = self.client.as_ref().ok_or("Supabase not configured")?;
         let session = client.login(email, password).await?;
         auth::save_session(&self.db, &session, email)?;
+        // Key first, then bootstrap — pulled items need the DEK to decrypt.
+        if let Err(e) = self.ensure_dek_with_password(&session, password).await {
+            tracing::warn!("encryption key setup at login: {e}");
+        }
         self.bootstrap_after_auth(&session).await?;
         let _ = self.sync_tick().await;
         self.get_state()
@@ -211,6 +458,7 @@ impl SyncEngine {
 
     pub fn logout(&self) -> Result<SyncStateDto, String> {
         auth::clear_session(&self.db).map_err(|e| e.to_string())?;
+        self.clear_dek();
         self.get_state()
     }
 
@@ -219,6 +467,9 @@ impl SyncEngine {
         match client.sign_up(email, password).await? {
             client::SignUpOutcome::SignedIn(session) => {
                 auth::save_session(&self.db, &session, email)?;
+                if let Err(e) = self.ensure_dek_with_password(&session, password).await {
+                    tracing::warn!("encryption key setup at sign-up: {e}");
+                }
                 self.bootstrap_after_auth(&session).await?;
                 let _ = self.sync_tick().await;
                 Ok(SignUpResultDto {
@@ -246,7 +497,29 @@ impl SyncEngine {
     pub async fn change_password(&self, new_password: &str) -> Result<(), String> {
         let client = self.client.as_ref().ok_or("Supabase not configured")?;
         let session = ensure_session(self).await.map_err(|e| e.to_string())?;
-        client.update_password(&session, new_password).await
+
+        // Prepare the re-wrapped key BEFORE changing the password so a
+        // failure can't leave the account with a key wrapped under a
+        // password that no longer exists.
+        let rewrapped = self.rewrap_key_for_new_password(&session, new_password)?;
+        if rewrapped.is_none() && self.dek().is_none() {
+            return Err(
+                "Sync encryption is locked on this device — unlock it in Account settings \
+                 before changing your password, or old synced clips would become unreadable."
+                    .into(),
+            );
+        }
+
+        client.update_password(&session, new_password).await?;
+
+        if let Some(wrapped) = rewrapped {
+            if let Err(e) = client.upsert_user_key(&session, &wrapped).await {
+                // Password already changed; retry-able mismatch. The next
+                // sign-in auto-heals from this device's cached key.
+                tracing::warn!("re-wrap upload after password change failed (auto-heal will fix on next sign-in): {e}");
+            }
+        }
+        Ok(())
     }
 
     /// Pull from cloud, push pending changes, and refresh local state.
@@ -323,6 +596,7 @@ impl SyncEngine {
             };
             rt.block_on(async {
                 if engine.is_configured() {
+                    engine.load_dek_from_keychain();
                     // Refresh the stored session before bootstrapping — after
                     // the app has been closed for over an hour the saved JWT
                     // is expired and device registration would fail.
@@ -420,14 +694,18 @@ impl SyncEngine {
                 newest_cursor = item.updated_at.clone();
             }
             let result = if item.deleted_at.is_some() {
+                // Deletions need no decryption — only the id matters.
                 self.db
                     .apply_remote_deletion(&item.id, item.deleted_at.as_deref().unwrap_or(""))
             } else {
+                let Some(item) = self.decrypt_incoming(item) else {
+                    continue;
+                };
                 self.db.upsert_remote_item(&item)
             };
             match result {
                 Ok(()) => changed = true,
-                Err(e) => tracing::warn!("incremental apply {}: {e}", item.id),
+                Err(e) => tracing::warn!("incremental apply: {e}"),
             }
         }
 
@@ -487,6 +765,9 @@ impl SyncEngine {
 
         let remote_items = client.fetch_recent_items(session, 100).await.map_err(|e| e.to_string())?;
         for item in remote_items {
+            let Some(item) = self.decrypt_incoming(item) else {
+                continue;
+            };
             if let Err(e) = self.db.upsert_remote_item(&item) {
                 tracing::warn!("pull item {}: {e}", item.id);
             }
@@ -660,14 +941,24 @@ impl SyncEngine {
             }
         }
 
+        // Never downgrade to plaintext: if the encryption key is locked,
+        // item pushes wait (they stay pending) until Unlock or Reset.
+        // Deletions still go through — they carry no content.
+        let dek = self.dek();
         let pending = self.db.list_pending_sync_items()?;
+        if dek.is_none() && pending.iter().any(|i| i.deleted_at.is_none()) {
+            tracing::debug!("item push paused — encryption key locked");
+        }
         for item in pending {
+            let is_deletion = item.deleted_at.is_some();
+            if dek.is_none() && !is_deletion {
+                continue;
+            }
             let backoff_key = format!("item:{}", item.id);
             if !self.backoff_due(&backoff_key) {
                 continue;
             }
-            let is_deletion = item.deleted_at.is_some();
-            match client.upsert_item(&session, &item).await {
+            match client.upsert_item(&session, &item, dek.as_ref()).await {
                 Ok(()) => {
                     self.backoff_clear(&backoff_key);
                     self.db.mark_synced(&item.id)?;
@@ -831,6 +1122,11 @@ impl SyncEngine {
             let _ = self.app.emit("items-updated", ());
             return Ok(());
         }
+
+        // Everything below (storage, clipboard write, toast) needs plaintext.
+        let Some(record) = self.decrypt_incoming(record) else {
+            return Ok(());
+        };
 
         let local_device = self.db.get_setting("local_device_id")?;
         if record.source_device_id.as_deref() == local_device.as_deref() {

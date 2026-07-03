@@ -6,6 +6,8 @@ import {
   authRequestPasswordReset,
   authResendConfirmation,
   authSignup,
+  resetSyncEncryption,
+  unlockSyncEncryption,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import type { SyncState } from "@memora/shared-types";
@@ -399,6 +401,102 @@ export function ChangePasswordForm() {
             Update password
           </button>
         </form>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Shown when the encryption key is unavailable (typically after a password
+ * reset on another device). Unlock re-derives the key from the password;
+ * Reset is the destructive last resort when no device still holds the key.
+ */
+export function EncryptionLockedCard({ onResolved }: { onResolved: (state: SyncState) => void }) {
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [confirmingReset, setConfirmingReset] = useState(false);
+
+  const run = async (action: () => Promise<SyncState>) => {
+    setBusy(true);
+    setError(null);
+    try {
+      const state = await action();
+      setPassword("");
+      onResolved(state);
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="space-y-3 rounded-xl border border-amber-500/40 bg-amber-500/10 p-4">
+      <div>
+        <p className="text-sm font-medium text-amber-800 dark:text-amber-200">
+          Sync encryption is locked
+        </p>
+        <p className="mt-1 text-xs leading-relaxed text-amber-800/80 dark:text-amber-200/80">
+          Your clips sync end-to-end encrypted, and this device doesn't hold the key yet —
+          this happens after updating to the version that introduced encryption, or after a
+          password reset. Enter your current password to unlock (syncing is paused until
+          then; nothing is ever uploaded unencrypted).
+        </p>
+      </div>
+
+      <div className="space-y-2">
+        <PasswordInput
+          value={password}
+          onChange={setPassword}
+          placeholder="Your current password"
+          autoComplete="current-password"
+        />
+        {error && <p className="text-xs text-red-500">{error}</p>}
+        <button
+          type="button"
+          disabled={busy || password.length === 0}
+          onClick={() => void run(() => unlockSyncEncryption(password))}
+          className="flex w-full items-center justify-center gap-2 rounded-xl bg-accent py-2 text-sm font-medium text-white hover:bg-accent/90 disabled:opacity-50"
+        >
+          {busy && <Loader2 className="h-4 w-4 animate-spin" />}
+          Unlock
+        </button>
+      </div>
+
+      {!confirmingReset ? (
+        <button
+          type="button"
+          onClick={() => setConfirmingReset(true)}
+          className="w-full text-center text-xs text-amber-700 underline-offset-2 hover:underline dark:text-amber-300"
+        >
+          Can't unlock? Reset sync encryption…
+        </button>
+      ) : (
+        <div className="space-y-2 rounded-lg border border-red-500/40 bg-red-500/10 p-3">
+          <p className="text-xs leading-relaxed text-red-700 dark:text-red-300">
+            Resetting creates a new key. Clips synced under the old key become{" "}
+            <span className="font-semibold">permanently unreadable</span> — only what's still
+            on your devices will re-sync. Enter your password above, then confirm.
+          </p>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => setConfirmingReset(false)}
+              className="flex-1 rounded-lg border border-border/60 py-1.5 text-xs hover:bg-surface-elevated"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={busy || password.length === 0}
+              onClick={() => void run(() => resetSyncEncryption(password))}
+              className="flex-1 rounded-lg bg-red-600 py-1.5 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-50"
+            >
+              Reset encryption
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );

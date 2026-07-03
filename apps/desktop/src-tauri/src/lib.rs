@@ -394,6 +394,8 @@ pub fn run() {
             commands::auth_signup,
             commands::auth_resend_confirmation,
             commands::auth_request_password_reset,
+            commands::auth_verify_signup_otp,
+            commands::auth_verify_recovery_otp,
             commands::auth_change_password,
             commands::unlock_sync_encryption,
             commands::reset_sync_encryption,

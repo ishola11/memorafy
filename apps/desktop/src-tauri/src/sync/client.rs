@@ -2,7 +2,6 @@ use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION};
 use serde::{Deserialize, Serialize};
 
 use super::auth::{session_from_auth_response, AuthSession, RefreshError};
-use super::auth_callback::AUTH_REDIRECT_URL;
 use super::config::SyncConfig;
 use crate::db::ItemRecord;
 
@@ -140,6 +139,33 @@ fn friendly_auth_error(status: reqwest::StatusCode, body: &str) -> String {
     }
 }
 
+fn friendly_otp_error(status: reqwest::StatusCode, body: &str) -> String {
+    let detail = serde_json::from_str::<serde_json::Value>(body)
+        .ok()
+        .and_then(|v| {
+            ["error_description", "msg", "message", "error"]
+                .iter()
+                .find_map(|k| v.get(k).and_then(|s| s.as_str()).map(String::from))
+        })
+        .unwrap_or_default()
+        .to_lowercase();
+
+    if detail.contains("expired") || detail.contains("invalid") || detail.contains("otp") {
+        return "That code didn't work or has expired. Check your email and try again, or request a new one.".to_string();
+    }
+    if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+        return "Too many attempts. Please wait a minute and try again.".to_string();
+    }
+    if status.is_server_error() {
+        return NETWORK_ERROR_MESSAGE.to_string();
+    }
+    if detail.is_empty() {
+        format!("Verification failed ({status}). Please try again.")
+    } else {
+        "That code didn't work. Check your email and try again, or request a new one.".to_string()
+    }
+}
+
 pub struct SupabaseClient {
     http: reqwest::Client,
     config: SyncConfig,
@@ -186,11 +212,7 @@ impl SupabaseClient {
     /// disabled → user is signed in immediately) or just a user record
     /// (confirmation enabled → they must click the emailed link first).
     pub async fn sign_up(&self, email: &str, password: &str) -> Result<SignUpOutcome, String> {
-        let redirect = urlencoding::encode(AUTH_REDIRECT_URL);
-        let url = format!(
-            "{}/signup?redirect_to={redirect}",
-            self.config.auth_url()
-        );
+        let url = format!("{}/signup", self.config.auth_url());
         let body = serde_json::json!({ "email": email, "password": password });
         let resp = self
             .http
@@ -218,13 +240,46 @@ impl SupabaseClient {
         }
     }
 
+    /// Verify a 6-digit email code (signup confirmation or password recovery).
+    pub async fn verify_otp(
+        &self,
+        email: &str,
+        token: &str,
+        otp_type: &str,
+    ) -> Result<AuthSession, String> {
+        let url = format!("{}/verify", self.config.auth_url());
+        let body = serde_json::json!({
+            "type": otp_type,
+            "email": email,
+            "token": token.trim(),
+        });
+        let resp = self
+            .http
+            .post(url)
+            .header("apikey", &self.config.anon_key)
+            .header("Content-Type", "application/json")
+            .json(&body)
+            .send()
+            .await
+            .map_err(|_| NETWORK_ERROR_MESSAGE.to_string())?;
+
+        let status = resp.status();
+        if !status.is_success() {
+            let text = resp.text().await.unwrap_or_default();
+            tracing::warn!("verify otp failed ({status}, type={otp_type}): {text}");
+            return Err(friendly_otp_error(status, &text));
+        }
+
+        let value: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+        session_from_auth_response(&value)
+    }
+
     /// Re-sends the sign-up confirmation email.
     pub async fn resend_confirmation(&self, email: &str) -> Result<(), String> {
         let url = format!("{}/resend", self.config.auth_url());
         let body = serde_json::json!({
             "type": "signup",
             "email": email,
-            "redirect_to": AUTH_REDIRECT_URL,
         });
         let resp = self
             .http
@@ -250,10 +305,7 @@ impl SupabaseClient {
     /// can't be used to probe which emails have accounts.
     pub async fn request_password_reset(&self, email: &str) -> Result<(), String> {
         let url = format!("{}/recover", self.config.auth_url());
-        let body = serde_json::json!({
-            "email": email,
-            "redirect_to": AUTH_REDIRECT_URL,
-        });
+        let body = serde_json::json!({ "email": email });
         let resp = self
             .http
             .post(url)

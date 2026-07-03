@@ -6,13 +6,15 @@ import {
   authRequestPasswordReset,
   authResendConfirmation,
   authSignup,
+  authVerifyRecoveryOtp,
+  authVerifySignupOtp,
   resetSyncEncryption,
   unlockSyncEncryption,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import type { SyncState } from "@memora/shared-types";
 
-type AuthMode = "signin" | "signup" | "forgot" | "confirm-pending" | "reset-sent";
+type AuthMode = "signin" | "signup" | "forgot" | "confirm-pending" | "reset-verify";
 
 const inputClass =
   "w-full rounded-lg border border-border/60 bg-surface px-3 py-2.5 text-sm outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/30";
@@ -67,6 +69,7 @@ export function AuthForms({
   const [email, setEmail] = useState(initialEmail ?? "");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [otpCode, setOtpCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -77,6 +80,7 @@ export function AuthForms({
     setNotice(null);
     setPassword("");
     setConfirmPassword("");
+    setOtpCode("");
   };
 
   const run = async (action: () => Promise<void>) => {
@@ -113,13 +117,29 @@ export function AuthForms({
     }
     void run(async () => {
       const result = await authSignup(email, password);
-      setPassword("");
-      setConfirmPassword("");
       if (result.needsEmailConfirmation) {
         setMode("confirm-pending");
       } else {
+        setPassword("");
+        setConfirmPassword("");
         onSignedIn(result);
       }
+    });
+  };
+
+  const handleVerifySignup = (e: React.FormEvent) => {
+    e.preventDefault();
+    const code = otpCode.trim();
+    if (!/^\d{6}$/.test(code)) {
+      setError("Enter the 6-digit code from your email.");
+      return;
+    }
+    void run(async () => {
+      const state = await authVerifySignupOtp(email, code, password);
+      setOtpCode("");
+      setPassword("");
+      setConfirmPassword("");
+      onSignedIn(state);
     });
   };
 
@@ -127,37 +147,80 @@ export function AuthForms({
     e.preventDefault();
     void run(async () => {
       await authRequestPasswordReset(email);
-      setMode("reset-sent");
+      setMode("reset-verify");
+      setOtpCode("");
+      setPassword("");
+      setConfirmPassword("");
+    });
+  };
+
+  const handleVerifyRecovery = (e: React.FormEvent) => {
+    e.preventDefault();
+    const code = otpCode.trim();
+    if (!/^\d{6}$/.test(code)) {
+      setError("Enter the 6-digit code from your email.");
+      return;
+    }
+    if (password !== confirmPassword) {
+      setError("Passwords don't match.");
+      return;
+    }
+    if (password.length < 8) {
+      setError("Password must be at least 8 characters.");
+      return;
+    }
+    void run(async () => {
+      const state = await authVerifyRecoveryOtp(email, code, password);
+      setOtpCode("");
+      setPassword("");
+      setConfirmPassword("");
+      onSignedIn(state);
     });
   };
 
   const handleResend = () => {
     void run(async () => {
       await authResendConfirmation(email);
-      setNotice("Confirmation email re-sent. Check your inbox (and spam folder).");
+      setNotice("Confirmation code re-sent. Check your inbox (and spam folder).");
     });
   };
 
   if (mode === "confirm-pending") {
     return (
-      <div className="space-y-4 rounded-xl border border-border/60 bg-surface-elevated/40 p-5 text-center">
-        <MailCheck className="mx-auto h-8 w-8 text-accent" />
-        <div>
-          <p className="text-sm font-medium">Check your inbox</p>
+      <form onSubmit={handleVerifySignup} className="space-y-4 rounded-xl border border-border/60 bg-surface-elevated/40 p-5">
+        <div className="text-center">
+          <MailCheck className="mx-auto h-8 w-8 text-accent" />
+          <p className="mt-3 text-sm font-medium">Enter your confirmation code</p>
           <p className="mt-1 text-sm text-muted">
-            We sent a confirmation link to <span className="font-medium">{email}</span>. Click
-            it to open Memora and finish signing in.
+            We sent a 6-digit code to <span className="font-medium">{email}</span>. Enter it
+            below to finish creating your account.
           </p>
+        </div>
+        <div>
+          <label className="mb-1.5 block text-xs text-muted">Confirmation code</label>
+          <input
+            type="text"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            pattern="[0-9]*"
+            maxLength={6}
+            value={otpCode}
+            onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+            placeholder="123456"
+            required
+            className={cn(inputClass, "text-center tracking-[0.3em]")}
+          />
         </div>
         {notice && <p className="text-xs text-green-600 dark:text-green-400">{notice}</p>}
         {error && <p className="text-xs text-red-500">{error}</p>}
         <div className="flex flex-col gap-2">
           <button
-            type="button"
-            onClick={() => switchMode("signin")}
-            className="w-full rounded-xl bg-accent py-2.5 text-sm font-medium text-white hover:bg-accent/90"
+            type="submit"
+            disabled={busy || otpCode.length !== 6}
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-accent py-2.5 text-sm font-medium text-white hover:bg-accent/90 disabled:opacity-50"
           >
-            I've confirmed. Sign in
+            {busy && <Loader2 className="h-4 w-4 animate-spin" />}
+            Verify and sign in
           </button>
           <button
             type="button"
@@ -165,32 +228,80 @@ export function AuthForms({
             disabled={busy}
             className="text-xs text-muted underline-offset-2 hover:underline disabled:opacity-50"
           >
-            {busy ? "Sending…" : "Resend the email"}
+            {busy ? "Sending…" : "Resend code"}
+          </button>
+          <button
+            type="button"
+            onClick={() => switchMode("signin")}
+            className="text-xs text-muted underline-offset-2 hover:underline"
+          >
+            Back to sign in
           </button>
         </div>
-      </div>
+      </form>
     );
   }
 
-  if (mode === "reset-sent") {
+  if (mode === "reset-verify") {
     return (
-      <div className="space-y-4 rounded-xl border border-border/60 bg-surface-elevated/40 p-5 text-center">
-        <MailCheck className="mx-auto h-8 w-8 text-accent" />
-        <div>
-          <p className="text-sm font-medium">Reset link sent</p>
+      <form onSubmit={handleVerifyRecovery} className="space-y-4 rounded-xl border border-border/60 bg-surface-elevated/40 p-5">
+        <div className="text-center">
+          <MailCheck className="mx-auto h-8 w-8 text-accent" />
+          <p className="mt-3 text-sm font-medium">Reset your password</p>
           <p className="mt-1 text-sm text-muted">
-            If an account exists for <span className="font-medium">{email}</span>, a password
-            reset link is on its way. Click it to open Memora and choose a new password.
+            If an account exists for <span className="font-medium">{email}</span>, we sent a
+            6-digit code. Enter it below with your new password.
           </p>
         </div>
+        <div>
+          <label className="mb-1.5 block text-xs text-muted">Reset code</label>
+          <input
+            type="text"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            pattern="[0-9]*"
+            maxLength={6}
+            value={otpCode}
+            onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+            placeholder="123456"
+            required
+            className={cn(inputClass, "text-center tracking-[0.3em]")}
+          />
+        </div>
+        <div>
+          <label className="mb-1.5 block text-xs text-muted">New password</label>
+          <PasswordInput
+            value={password}
+            onChange={setPassword}
+            placeholder="At least 8 characters"
+            autoComplete="new-password"
+          />
+        </div>
+        <div>
+          <label className="mb-1.5 block text-xs text-muted">Confirm new password</label>
+          <PasswordInput
+            value={confirmPassword}
+            onChange={setConfirmPassword}
+            autoComplete="new-password"
+          />
+        </div>
+        {error && <p className="text-xs text-red-500">{error}</p>}
+        <button
+          type="submit"
+          disabled={busy || otpCode.length !== 6}
+          className="flex w-full items-center justify-center gap-2 rounded-xl bg-accent py-2.5 text-sm font-medium text-white hover:bg-accent/90 disabled:opacity-50"
+        >
+          {busy && <Loader2 className="h-4 w-4 animate-spin" />}
+          Update password
+        </button>
         <button
           type="button"
           onClick={() => switchMode("signin")}
-          className="w-full rounded-xl bg-accent py-2.5 text-sm font-medium text-white hover:bg-accent/90"
+          className="w-full text-center text-xs text-muted underline-offset-2 hover:underline"
         >
           Back to sign in
         </button>
-      </div>
+      </form>
     );
   }
 
@@ -200,7 +311,7 @@ export function AuthForms({
         <div>
           <p className="text-sm font-medium">Reset your password</p>
           <p className="mt-1 text-xs text-muted">
-            Enter your account email and we'll send you a reset link.
+            Enter your account email and we'll send you a 6-digit reset code.
           </p>
         </div>
         <div>
@@ -221,7 +332,7 @@ export function AuthForms({
           className="flex w-full items-center justify-center gap-2 rounded-xl bg-accent py-2.5 text-sm font-medium text-white hover:bg-accent/90 disabled:opacity-50"
         >
           {busy && <Loader2 className="h-4 w-4 animate-spin" />}
-          Send reset link
+          Send reset code
         </button>
         <button
           type="button"

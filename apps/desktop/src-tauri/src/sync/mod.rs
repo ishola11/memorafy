@@ -536,6 +536,44 @@ impl SyncEngine {
         client.request_password_reset(email).await
     }
 
+    /// Confirm a new account with the 6-digit code from the signup email.
+    pub async fn verify_signup_otp(
+        &self,
+        email: &str,
+        token: &str,
+        password: &str,
+    ) -> Result<SyncStateDto, String> {
+        let client = self.client.as_ref().ok_or("Supabase not configured")?;
+        let session = client.verify_otp(email, token, "signup").await?;
+        auth::save_session(&self.db, &session, email)?;
+        if let Err(e) = self.ensure_dek_with_password(&session, password).await {
+            tracing::warn!("encryption key setup after email confirm: {e}");
+        }
+        self.bootstrap_after_auth(&session).await?;
+        let _ = self.sync_tick().await;
+        self.get_state()
+    }
+
+    /// Complete password reset with the 6-digit code from the recovery email.
+    pub async fn verify_recovery_otp(
+        &self,
+        email: &str,
+        token: &str,
+        new_password: &str,
+    ) -> Result<SyncStateDto, String> {
+        let client = self.client.as_ref().ok_or("Supabase not configured")?;
+        let session = client.verify_otp(email, token, "recovery").await?;
+        auth::save_session(&self.db, &session, email)?;
+        self.clear_dek();
+        client.update_password(&session, new_password).await?;
+        if let Err(e) = self.ensure_dek_with_password(&session, new_password).await {
+            tracing::warn!("encryption key setup after password reset: {e}");
+        }
+        self.bootstrap_after_auth(&session).await?;
+        let _ = self.sync_tick().await;
+        self.get_state()
+    }
+
     /// Complete sign-in from a Supabase email link opened via the `memora://` deep link.
     pub async fn handle_auth_callback(&self, url: &str) -> Result<AuthCallbackResultDto, String> {
         let _client = self.client.as_ref().ok_or("Supabase not configured")?;

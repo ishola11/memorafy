@@ -132,6 +132,7 @@ Supabase GitHub integration). The one-time dashboard setup:
 4. Set the **production branch** to `master` and enable branching if you want PR preview databases
 5. Copy project URL + anon key to `apps/desktop/.env`
 6. **Authentication → URL Configuration:** set **Site URL** to `memora://auth/callback` and add the same URL under **Redirect URLs** (exact match). Email confirmation and password-reset links then reopen the desktop app instead of a browser tab.
+7. **Authentication → Email Templates:** update **Confirm signup** and **Reset password** templates to show the 6-digit code (`{{ .Token }}`) instead of a magic link. See `services/supabase/templates/confirmation.html` and `recovery.html` for copy. Users enter the code in the Memora app (Settings → Account).
 
 Merges to `master` then apply new files in `services/supabase/migrations/`
 automatically; PRs get isolated preview databases.

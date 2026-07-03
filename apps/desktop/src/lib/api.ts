@@ -170,6 +170,22 @@ export async function authRequestPasswordReset(email: string): Promise<void> {
   return invoke("auth_request_password_reset", { email });
 }
 
+export async function authVerifySignupOtp(
+  email: string,
+  token: string,
+  password: string,
+): Promise<SyncState> {
+  return invoke<SyncState>("auth_verify_signup_otp", { email, token, password });
+}
+
+export async function authVerifyRecoveryOtp(
+  email: string,
+  token: string,
+  newPassword: string,
+): Promise<SyncState> {
+  return invoke<SyncState>("auth_verify_recovery_otp", { email, token, newPassword });
+}
+
 export async function authChangePassword(newPassword: string): Promise<void> {
   return invoke("auth_change_password", { newPassword });
 }

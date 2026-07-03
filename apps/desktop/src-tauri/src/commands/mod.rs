@@ -459,6 +459,38 @@ pub async fn auth_request_password_reset(
 }
 
 #[tauri::command]
+pub async fn auth_verify_signup_otp(
+    state: State<'_, AppState>,
+    email: String,
+    token: String,
+    password: String,
+) -> Result<crate::sync::SyncStateDto, String> {
+    if password.chars().count() < 8 {
+        return Err("Password must be at least 8 characters.".into());
+    }
+    state
+        .sync_engine
+        .verify_signup_otp(email.trim(), token.trim(), &password)
+        .await
+}
+
+#[tauri::command]
+pub async fn auth_verify_recovery_otp(
+    state: State<'_, AppState>,
+    email: String,
+    token: String,
+    new_password: String,
+) -> Result<crate::sync::SyncStateDto, String> {
+    if new_password.chars().count() < 8 {
+        return Err("Password must be at least 8 characters.".into());
+    }
+    state
+        .sync_engine
+        .verify_recovery_otp(email.trim(), token.trim(), &new_password)
+        .await
+}
+
+#[tauri::command]
 pub async fn auth_change_password(
     state: State<'_, AppState>,
     new_password: String,

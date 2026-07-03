@@ -1,5 +1,5 @@
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use parking_lot::Mutex;
 
 use chrono::{DateTime, Duration, Local, Utc};
 use rusqlite::{params, Connection, OptionalExtension};
@@ -52,13 +52,13 @@ impl Database {
 
     fn migrate(&self) -> Result<(), rusqlite::Error> {
         let sql = include_str!("migrations/001_initial.sql");
-        self.conn.lock().unwrap().execute_batch(sql)?;
+        self.conn.lock().execute_batch(sql)?;
         self.apply_schema_patches()?;
         Ok(())
     }
 
     fn apply_schema_patches(&self) -> Result<(), rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
         let patches = [
             "ALTER TABLE collections ADD COLUMN sync_status TEXT NOT NULL DEFAULT 'synced'",
             "ALTER TABLE collections ADD COLUMN deleted_at TEXT",
@@ -68,6 +68,8 @@ impl Database {
                 item_id TEXT PRIMARY KEY,
                 hidden_at TEXT NOT NULL
             )",
+            // Sync engine polls pending counts/lists frequently.
+            "CREATE INDEX IF NOT EXISTS idx_items_sync_status ON items(sync_status)",
         ];
         for patch in patches {
             let _ = conn.execute(patch, []);
@@ -76,7 +78,7 @@ impl Database {
     }
 
     fn seed_defaults(&self) -> Result<(), rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
         let count: i64 = conn.query_row("SELECT COUNT(*) FROM collections", [], |r| r.get(0))?;
         if count == 0 {
             let now = Utc::now().to_rfc3339();
@@ -114,7 +116,7 @@ impl Database {
     pub fn ensure_device(&self) -> Result<String, rusqlite::Error> {
         if let Some(id) = self.get_setting(super::models::SETTING_LOCAL_DEVICE_ID)? {
             if !id.is_empty() {
-                let conn = self.conn.lock().unwrap();
+                let conn = self.conn.lock();
                 let exists: i64 = conn.query_row(
                     "SELECT COUNT(*) FROM devices WHERE id = ?1",
                     params![id],
@@ -147,7 +149,7 @@ impl Database {
         };
         let now = Utc::now().to_rfc3339();
 
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
         conn.execute("UPDATE devices SET is_current = 0", [])?;
         conn.execute(
             "INSERT INTO devices (id, name, platform, last_seen_at, is_current, created_at) VALUES (?1, ?2, ?3, ?4, 1, ?5)",
@@ -161,7 +163,7 @@ impl Database {
     }
 
     pub fn get_device_name(&self, device_id: &str) -> Result<String, rusqlite::Error> {
-        self.conn.lock().unwrap().query_row(
+        self.conn.lock().query_row(
             "SELECT name FROM devices WHERE id = ?1",
             params![device_id],
             |r| r.get(0),
@@ -170,7 +172,7 @@ impl Database {
 
     pub fn touch_device(&self, device_id: &str) -> Result<(), rusqlite::Error> {
         let now = Utc::now().to_rfc3339();
-        self.conn.lock().unwrap().execute(
+        self.conn.lock().execute(
             "UPDATE devices SET last_seen_at = ?1 WHERE id = ?2",
             params![now, device_id],
         )?;
@@ -189,7 +191,7 @@ impl Database {
         content_hash: &str,
     ) -> Result<ItemRecord, rusqlite::Error> {
         // Dedupe: same hash within 5 minutes on any device
-        let conn = self.conn.lock().unwrap();
+        let mut conn = self.conn.lock();
         let recent: Option<String> = conn
             .query_row(
                 "SELECT id FROM items WHERE content_hash = ?1
@@ -218,7 +220,10 @@ impl Database {
             .as_ref()
             .map(|t| t.lines().next().unwrap_or(t).chars().take(80).collect());
 
-        conn.execute(
+        // Item row, search index, and sync queue must land atomically — a
+        // crash between them leaves ghost/missing search results.
+        let tx = conn.transaction()?;
+        tx.execute(
             "INSERT INTO items (
                 id, kind, content_type, display_title, preview_text, char_count,
                 url, url_title, url_domain, code_language, line_count,
@@ -247,7 +252,7 @@ impl Database {
         )?;
 
         let tags_str = String::new();
-        conn.execute(
+        tx.execute(
             "INSERT INTO items_fts (id, display_title, preview_text, url_domain, tags, trigger)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             params![
@@ -260,7 +265,8 @@ impl Database {
             ],
         )?;
 
-        self.enqueue_sync(&conn, "create", "item", &id)?;
+        self.enqueue_sync(&tx, "create", "item", &id)?;
+        tx.commit()?;
 
         drop(conn);
         self.get_item(&id)
@@ -283,7 +289,7 @@ impl Database {
     }
 
     pub fn get_item(&self, id: &str) -> Result<ItemRecord, rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
         conn.query_row(
             "SELECT i.id, i.kind, i.content_type, i.display_title, i.preview_text, i.char_count,
                     i.url, i.url_title, i.url_domain, i.code_language, i.line_count,
@@ -299,7 +305,7 @@ impl Database {
     }
 
     pub fn list_items(&self, limit: i64) -> Result<Vec<ItemRecord>, rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
         let mut stmt = conn.prepare(
             "SELECT i.id, i.kind, i.content_type, i.display_title, i.preview_text, i.char_count,
                     i.url, i.url_title, i.url_domain, i.code_language, i.line_count,
@@ -318,7 +324,7 @@ impl Database {
 
     pub fn search(&self, filters: &SearchFiltersDto) -> Result<Vec<ItemRecord>, rusqlite::Error> {
         let parsed = crate::search::parse_query(&filters.query);
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
 
         let mut sql = String::from(
             "SELECT i.id, i.kind, i.content_type, i.display_title, i.preview_text, i.char_count,
@@ -419,7 +425,7 @@ impl Database {
         collection_id: Option<&str>,
         limit: i64,
     ) -> Result<Vec<ItemRecord>, rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
         let base = "SELECT i.id, i.kind, i.content_type, i.display_title, i.preview_text, i.char_count,
                     i.url, i.url_title, i.url_domain, i.code_language, i.line_count,
                     i.blob_path, i.blob_size, i.thumbnail_path, i.content_hash, i.plain_text,
@@ -476,7 +482,7 @@ impl Database {
     }
 
     pub fn content_hash_exists(&self, content_hash: &str) -> Result<bool, rusqlite::Error> {
-        let count: i64 = self.conn.lock().unwrap().query_row(
+        let count: i64 = self.conn.lock().query_row(
             "SELECT COUNT(*) FROM items WHERE content_hash = ?1 AND deleted_at IS NULL",
             params![content_hash],
             |r| r.get(0),
@@ -485,7 +491,7 @@ impl Database {
     }
 
     pub fn content_hash_synced_exists(&self, content_hash: &str) -> Result<bool, rusqlite::Error> {
-        let count: i64 = self.conn.lock().unwrap().query_row(
+        let count: i64 = self.conn.lock().query_row(
             "SELECT COUNT(*) FROM items WHERE content_hash = ?1 AND deleted_at IS NULL AND sync_status = 'synced'",
             params![content_hash],
             |r| r.get(0),
@@ -494,7 +500,7 @@ impl Database {
     }
 
     pub fn recent_plain_text_exists(&self, text: &str, limit: i64) -> Result<bool, rusqlite::Error> {
-        let count: i64 = self.conn.lock().unwrap().query_row(
+        let count: i64 = self.conn.lock().query_row(
             "SELECT COUNT(*) FROM (
                 SELECT plain_text FROM items
                 WHERE deleted_at IS NULL AND plain_text = ?1
@@ -508,23 +514,27 @@ impl Database {
 
     pub fn toggle_pin(&self, id: &str) -> Result<(), rusqlite::Error> {
         let now = Utc::now().to_rfc3339();
-        let conn = self.conn.lock().unwrap();
-        conn.execute(
+        let mut conn = self.conn.lock();
+        let tx = conn.transaction()?;
+        tx.execute(
             "UPDATE items SET is_pinned = CASE is_pinned WHEN 1 THEN 0 ELSE 1 END, updated_at = ?1, sync_status = 'pending' WHERE id = ?2",
             params![now, id],
         )?;
-        self.enqueue_sync(&conn, "update", "item", id)?;
+        self.enqueue_sync(&tx, "update", "item", id)?;
+        tx.commit()?;
         Ok(())
     }
 
     pub fn toggle_favorite(&self, id: &str) -> Result<(), rusqlite::Error> {
         let now = Utc::now().to_rfc3339();
-        let conn = self.conn.lock().unwrap();
-        conn.execute(
+        let mut conn = self.conn.lock();
+        let tx = conn.transaction()?;
+        tx.execute(
             "UPDATE items SET is_favorited = CASE is_favorited WHEN 1 THEN 0 ELSE 1 END, updated_at = ?1, sync_status = 'pending' WHERE id = ?2",
             params![now, id],
         )?;
-        self.enqueue_sync(&conn, "update", "item", id)?;
+        self.enqueue_sync(&tx, "update", "item", id)?;
+        tx.commit()?;
         Ok(())
     }
 
@@ -543,7 +553,7 @@ impl Database {
         sync_to_cloud: bool,
     ) -> Result<(), rusqlite::Error> {
         let blob_path: Option<String> = if remove_blob {
-            self.conn.lock().unwrap().query_row(
+            self.conn.lock().query_row(
                 "SELECT blob_path FROM items WHERE id = ?1",
                 params![id],
                 |r| r.get(0),
@@ -553,15 +563,16 @@ impl Database {
         };
 
         let now = Utc::now().to_rfc3339();
-        let conn = self.conn.lock().unwrap();
+        let mut conn = self.conn.lock();
+        let tx = conn.transaction()?;
         if sync_to_cloud {
-            conn.execute(
+            tx.execute(
                 "UPDATE items SET deleted_at = ?1, updated_at = ?1, sync_status = 'pending' WHERE id = ?2 AND deleted_at IS NULL",
                 params![now, id],
             )?;
-            self.enqueue_sync(&conn, "delete", "item", id)?;
+            self.enqueue_sync(&tx, "delete", "item", id)?;
         } else {
-            let sync_status: String = conn
+            let sync_status: String = tx
                 .query_row(
                     "SELECT sync_status FROM items WHERE id = ?1 AND deleted_at IS NULL",
                     params![id],
@@ -569,18 +580,19 @@ impl Database {
                 )
                 .optional()?
                 .unwrap_or_else(|| "synced".to_string());
-            conn.execute(
+            tx.execute(
                 "UPDATE items SET deleted_at = ?1, updated_at = ?1, sync_status = 'synced' WHERE id = ?2 AND deleted_at IS NULL",
                 params![now, id],
             )?;
             if sync_status == "synced" {
-                conn.execute(
+                tx.execute(
                     "INSERT OR IGNORE INTO local_hidden_items (item_id, hidden_at) VALUES (?1, ?2)",
                     params![id, now],
                 )?;
             }
         }
-        conn.execute("DELETE FROM items_fts WHERE id = ?1", params![id])?;
+        tx.execute("DELETE FROM items_fts WHERE id = ?1", params![id])?;
+        tx.commit()?;
         drop(conn);
 
         if let Some(path) = blob_path {
@@ -590,7 +602,7 @@ impl Database {
     }
 
     fn is_locally_hidden(&self, item_id: &str) -> Result<bool, rusqlite::Error> {
-        let hidden: Option<i64> = self.conn.lock().unwrap().query_row(
+        let hidden: Option<i64> = self.conn.lock().query_row(
             "SELECT 1 FROM local_hidden_items WHERE item_id = ?1",
             params![item_id],
             |r| r.get(0),
@@ -610,7 +622,7 @@ impl Database {
         mode: ClearHistoryMode,
         retention_days: i64,
     ) -> Result<u32, rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
         let count: i64 = match mode {
             ClearHistoryMode::All => conn.query_row(
                 &format!("SELECT COUNT(*) FROM ({}) AS clearable", Self::CLEARABLE_HISTORY_BASE),
@@ -638,7 +650,7 @@ impl Database {
         mode: ClearHistoryMode,
         retention_days: i64,
     ) -> Result<Vec<String>, rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
         match mode {
             ClearHistoryMode::All => {
                 let mut stmt = conn.prepare(Self::CLEARABLE_HISTORY_BASE)?;
@@ -698,7 +710,7 @@ impl Database {
                 .is_ok()
             {
                 if sync_to_cloud {
-                    let _ = self.conn.lock().unwrap().execute(
+                    let _ = self.conn.lock().execute(
                         "DELETE FROM local_hidden_items WHERE item_id = ?1",
                         params![id],
                     );
@@ -719,20 +731,15 @@ impl Database {
         Ok(result.cleared)
     }
 
-    /// Remove all history clips. Keeps pinned, favorited, snippets, and collection items.
-    #[allow(dead_code)]
-    pub fn clear_all_history(&self) -> Result<u32, rusqlite::Error> {
-        let result = self.clear_history(ClearHistoryScope::Everywhere, ClearHistoryMode::All)?;
-        Ok(result.cleared)
-    }
-
     pub fn apply_remote_deletion(&self, id: &str, deleted_at: &str) -> Result<(), rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
-        conn.execute(
+        let mut conn = self.conn.lock();
+        let tx = conn.transaction()?;
+        tx.execute(
             "UPDATE items SET deleted_at = ?1, sync_status = 'synced' WHERE id = ?2 AND deleted_at IS NULL",
             params![deleted_at, id],
         )?;
-        conn.execute("DELETE FROM items_fts WHERE id = ?1", params![id])?;
+        tx.execute("DELETE FROM items_fts WHERE id = ?1", params![id])?;
+        tx.commit()?;
         Ok(())
     }
 
@@ -791,21 +798,23 @@ impl Database {
 
     pub fn rename_item(&self, id: &str, title: &str) -> Result<(), rusqlite::Error> {
         let now = Utc::now().to_rfc3339();
-        let conn = self.conn.lock().unwrap();
-        conn.execute(
+        let mut conn = self.conn.lock();
+        let tx = conn.transaction()?;
+        tx.execute(
             "UPDATE items SET display_title = ?1, updated_at = ?2, sync_status = 'pending' WHERE id = ?3",
             params![title, now, id],
         )?;
-        conn.execute(
+        tx.execute(
             "UPDATE items_fts SET display_title = ?1 WHERE id = ?2",
             params![title, id],
         )?;
-        self.enqueue_sync(&conn, "update", "item", id)?;
+        self.enqueue_sync(&tx, "update", "item", id)?;
+        tx.commit()?;
         Ok(())
     }
 
     pub fn get_collections(&self) -> Result<Vec<CollectionDto>, rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
         let mut stmt = conn.prepare(
             "SELECT c.id, c.name, c.color, c.icon,
                     (SELECT COUNT(*) FROM item_collections ic WHERE ic.collection_id = c.id) as cnt
@@ -849,8 +858,9 @@ impl Database {
             .filter(|t| !t.is_empty())
             .map(String::from);
 
-        let conn = self.conn.lock().unwrap();
-        conn.execute(
+        let mut conn = self.conn.lock();
+        let tx = conn.transaction()?;
+        tx.execute(
             "INSERT INTO items (
                 id, kind, content_type, display_title, preview_text, char_count,
                 url, url_title, url_domain, code_language, line_count,
@@ -870,13 +880,14 @@ impl Database {
             ],
         )?;
 
-        conn.execute(
+        tx.execute(
             "INSERT INTO items_fts (id, display_title, preview_text, url_domain, tags, trigger)
              VALUES (?1, ?2, ?3, NULL, '', ?4)",
             params![id, trimmed_title, preview, trigger_val.as_deref()],
         )?;
 
-        self.enqueue_sync(&conn, "create", "item", &id)?;
+        self.enqueue_sync(&tx, "create", "item", &id)?;
+        tx.commit()?;
         drop(conn);
         self.get_item(&id)
     }
@@ -912,8 +923,9 @@ impl Database {
             .filter(|t| !t.is_empty())
             .map(String::from);
 
-        let conn = self.conn.lock().unwrap();
-        conn.execute(
+        let mut conn = self.conn.lock();
+        let tx = conn.transaction()?;
+        tx.execute(
             "UPDATE items SET
                 display_title = ?1, plain_text = ?2, preview_text = ?3, char_count = ?4,
                 content_hash = ?5, trigger = ?6, updated_at = ?7, sync_status = 'pending'
@@ -929,11 +941,12 @@ impl Database {
                 id,
             ],
         )?;
-        conn.execute(
+        tx.execute(
             "UPDATE items_fts SET display_title = ?1, preview_text = ?2, trigger = ?3 WHERE id = ?4",
             params![trimmed_title, preview, trigger_val.as_deref(), id],
         )?;
-        self.enqueue_sync(&conn, "update", "item", id)?;
+        self.enqueue_sync(&tx, "update", "item", id)?;
+        tx.commit()?;
         drop(conn);
         self.get_item(id)
     }
@@ -948,7 +961,7 @@ impl Database {
         }
 
         let now = Utc::now().to_rfc3339();
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
         conn.execute(
             "UPDATE items SET kind = 'snippet', updated_at = ?1, sync_status = 'pending' WHERE id = ?2",
             params![now, id],
@@ -965,25 +978,27 @@ impl Database {
         }
         let id = Uuid::new_v4().to_string();
         let now = Utc::now().to_rfc3339();
-        let conn = self.conn.lock().unwrap();
-        let max_order: i64 = conn
+        let mut conn = self.conn.lock();
+        let tx = conn.transaction()?;
+        let max_order: i64 = tx
             .query_row(
                 "SELECT COALESCE(MAX(sort_order), -1) FROM collections",
                 [],
                 |r| r.get(0),
             )
             .unwrap_or(-1);
-        conn.execute(
+        tx.execute(
             "INSERT INTO collections (id, name, color, sort_order, created_at, updated_at, sync_status) VALUES (?1, ?2, ?3, ?4, ?5, ?5, 'pending')",
             params![id, trimmed, color, max_order + 1, now],
         )?;
-        self.enqueue_sync(&conn, "create", "collection", &id)?;
+        self.enqueue_sync(&tx, "create", "collection", &id)?;
+        tx.commit()?;
         drop(conn);
         self.get_collection(&id)
     }
 
     pub fn get_collection(&self, id: &str) -> Result<CollectionDto, rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
         conn.query_row(
             "SELECT c.id, c.name, c.color, c.icon,
                     (SELECT COUNT(*) FROM item_collections ic WHERE ic.collection_id = c.id) as cnt
@@ -1008,48 +1023,53 @@ impl Database {
         color: Option<&str>,
     ) -> Result<CollectionDto, rusqlite::Error> {
         let now = Utc::now().to_rfc3339();
-        let conn = self.conn.lock().unwrap();
+        let mut conn = self.conn.lock();
+        let tx = conn.transaction()?;
         if let Some(n) = name {
             if n.trim().is_empty() {
                 return Err(rusqlite::Error::InvalidParameterName("name".into()));
             }
-            conn.execute(
+            tx.execute(
                 "UPDATE collections SET name = ?1, updated_at = ?2, sync_status = 'pending' WHERE id = ?3 AND deleted_at IS NULL",
                 params![n.trim(), now, id],
             )?;
         }
         if let Some(c) = color {
-            conn.execute(
+            tx.execute(
                 "UPDATE collections SET color = ?1, updated_at = ?2, sync_status = 'pending' WHERE id = ?3 AND deleted_at IS NULL",
                 params![c, now, id],
             )?;
         }
-        self.enqueue_sync(&conn, "update", "collection", id)?;
+        self.enqueue_sync(&tx, "update", "collection", id)?;
+        tx.commit()?;
         drop(conn);
         self.get_collection(id)
     }
 
     pub fn delete_collection(&self, id: &str) -> Result<(), rusqlite::Error> {
         let now = Utc::now().to_rfc3339();
-        let conn = self.conn.lock().unwrap();
-        conn.execute(
+        let mut conn = self.conn.lock();
+        let tx = conn.transaction()?;
+        tx.execute(
             "DELETE FROM item_collections WHERE collection_id = ?1",
             params![id],
         )?;
-        let changed = conn.execute(
+        let changed = tx.execute(
             "UPDATE collections SET deleted_at = ?1, updated_at = ?1, sync_status = 'pending' WHERE id = ?2 AND deleted_at IS NULL",
             params![now, id],
         )?;
         if changed == 0 {
             return Err(rusqlite::Error::QueryReturnedNoRows);
         }
-        self.enqueue_sync(&conn, "delete", "collection", id)?;
+        self.enqueue_sync(&tx, "delete", "collection", id)?;
+        tx.commit()?;
         Ok(())
     }
 
     pub fn add_item_to_collection(&self, item_id: &str, collection_id: &str) -> Result<(), rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
-        let exists: i64 = conn.query_row(
+        let mut conn = self.conn.lock();
+        let tx = conn.transaction()?;
+        let exists: i64 = tx.query_row(
             "SELECT COUNT(*) FROM item_collections WHERE item_id = ?1 AND collection_id = ?2",
             params![item_id, collection_id],
             |r| r.get(0),
@@ -1058,20 +1078,21 @@ impl Database {
             return Ok(());
         }
         // Ensure the parent collection is queued for cloud push before the link.
-        let collection_pending: i64 = conn.query_row(
+        let collection_pending: i64 = tx.query_row(
             "SELECT COUNT(*) FROM collections WHERE id = ?1 AND sync_status = 'pending' AND deleted_at IS NULL",
             params![collection_id],
             |r| r.get(0),
         )?;
         if collection_pending > 0 {
-            self.enqueue_sync(&conn, "create", "collection", collection_id)?;
+            self.enqueue_sync(&tx, "create", "collection", collection_id)?;
         }
-        conn.execute(
+        tx.execute(
             "INSERT INTO item_collections (item_id, collection_id, sync_status) VALUES (?1, ?2, 'pending')",
             params![item_id, collection_id],
         )?;
         let key = format!("{item_id}:{collection_id}");
-        self.enqueue_sync(&conn, "create", "item_collection", &key)?;
+        self.enqueue_sync(&tx, "create", "item_collection", &key)?;
+        tx.commit()?;
         Ok(())
     }
 
@@ -1080,8 +1101,9 @@ impl Database {
         item_id: &str,
         collection_id: &str,
     ) -> Result<(), rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
-        let changed = conn.execute(
+        let mut conn = self.conn.lock();
+        let tx = conn.transaction()?;
+        let changed = tx.execute(
             "DELETE FROM item_collections WHERE item_id = ?1 AND collection_id = ?2",
             params![item_id, collection_id],
         )?;
@@ -1089,12 +1111,13 @@ impl Database {
             return Ok(());
         }
         let key = format!("{item_id}:{collection_id}");
-        self.enqueue_sync(&conn, "delete", "item_collection", &key)?;
+        self.enqueue_sync(&tx, "delete", "item_collection", &key)?;
+        tx.commit()?;
         Ok(())
     }
 
     pub fn get_item_collection_ids(&self, item_id: &str) -> Result<Vec<String>, rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
         let mut stmt = conn.prepare(
             "SELECT collection_id FROM item_collections WHERE item_id = ?1",
         )?;
@@ -1103,7 +1126,7 @@ impl Database {
     }
 
     pub fn get_devices(&self) -> Result<Vec<DeviceDto>, rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
         let mut stmt = conn.prepare(
             "SELECT id, name, platform, last_seen_at, is_current FROM devices ORDER BY is_current DESC, name",
         )?;
@@ -1128,7 +1151,7 @@ impl Database {
     }
 
     pub fn pending_sync_count(&self) -> Result<i64, rusqlite::Error> {
-        self.conn.lock().unwrap().query_row(
+        self.conn.lock().query_row(
             "SELECT
                 (SELECT COUNT(*) FROM items WHERE sync_status = 'pending') +
                 (SELECT COUNT(*) FROM collections WHERE sync_status = 'pending') +
@@ -1139,13 +1162,20 @@ impl Database {
     }
 
     pub fn clear_pending_sync_queue(&self) -> Result<i64, rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
         let cleared = conn.execute("DELETE FROM sync_queue WHERE status = 'pending'", [])?;
         Ok(cleared as i64)
     }
 
+    /// Remove completed queue rows so the table doesn't grow without bound.
+    pub fn prune_synced_queue_rows(&self) -> Result<i64, rusqlite::Error> {
+        let conn = self.conn.lock();
+        let pruned = conn.execute("DELETE FROM sync_queue WHERE status = 'synced'", [])?;
+        Ok(pruned as i64)
+    }
+
     pub fn mark_synced(&self, entity_id: &str) -> Result<(), rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
         conn.execute(
             "UPDATE items SET sync_status = 'synced' WHERE id = ?1",
             params![entity_id],
@@ -1158,7 +1188,7 @@ impl Database {
     }
 
     pub fn mark_collection_synced(&self, entity_id: &str) -> Result<(), rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
         conn.execute(
             "UPDATE collections SET sync_status = 'synced' WHERE id = ?1",
             params![entity_id],
@@ -1175,7 +1205,7 @@ impl Database {
     }
 
     pub fn mark_item_collection_synced(&self, item_id: &str, collection_id: &str) -> Result<(), rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
         let key = format!("{item_id}:{collection_id}");
         conn.execute(
             "UPDATE item_collections SET sync_status = 'synced'
@@ -1190,7 +1220,7 @@ impl Database {
     }
 
     pub fn get_setting(&self, key: &str) -> Result<Option<String>, rusqlite::Error> {
-        self.conn.lock().unwrap().query_row(
+        self.conn.lock().query_row(
             "SELECT value FROM settings WHERE key = ?1",
             params![key],
             |r| r.get(0),
@@ -1198,7 +1228,7 @@ impl Database {
     }
 
     pub fn set_setting(&self, key: &str, value: &str) -> Result<(), rusqlite::Error> {
-        self.conn.lock().unwrap().execute(
+        self.conn.lock().execute(
             "INSERT INTO settings (key, value) VALUES (?1, ?2)
              ON CONFLICT(key) DO UPDATE SET value = excluded.value",
             params![key, value],
@@ -1207,7 +1237,7 @@ impl Database {
     }
 
     pub fn delete_setting(&self, key: &str) -> Result<(), rusqlite::Error> {
-        self.conn.lock().unwrap().execute(
+        self.conn.lock().execute(
             "DELETE FROM settings WHERE key = ?1",
             params![key],
         )?;
@@ -1215,7 +1245,7 @@ impl Database {
     }
 
     pub fn list_pending_sync_items(&self) -> Result<Vec<ItemRecord>, rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
         let mut stmt = conn.prepare(
             "SELECT i.id, i.kind, i.content_type, i.display_title, i.preview_text, i.char_count,
                     i.url, i.url_title, i.url_domain, i.code_language, i.line_count,
@@ -1233,7 +1263,7 @@ impl Database {
     }
 
     pub fn item_exists(&self, id: &str) -> Result<bool, rusqlite::Error> {
-        let count: i64 = self.conn.lock().unwrap().query_row(
+        let count: i64 = self.conn.lock().query_row(
             "SELECT COUNT(*) FROM items WHERE id = ?1 AND deleted_at IS NULL",
             params![id],
             |r| r.get(0),
@@ -1242,7 +1272,7 @@ impl Database {
     }
 
     pub fn list_pending_sync_collections(&self) -> Result<Vec<CollectionRecord>, rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
         let mut stmt = conn.prepare(
             "SELECT id, name, color, icon, sort_order, sync_status, created_at, updated_at, deleted_at
              FROM collections WHERE sync_status = 'pending' ORDER BY created_at ASC LIMIT 50",
@@ -1264,7 +1294,7 @@ impl Database {
     }
 
     pub fn list_pending_sync_item_collections(&self) -> Result<Vec<ItemCollectionRecord>, rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
         let mut stmt = conn.prepare(
             "SELECT ic.item_id, ic.collection_id
              FROM item_collections ic
@@ -1285,7 +1315,7 @@ impl Database {
     }
 
     pub fn list_pending_item_collection_deletes(&self) -> Result<Vec<ItemCollectionRecord>, rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
         let mut stmt = conn.prepare(
             "SELECT entity_id FROM sync_queue
              WHERE entity_type = 'item_collection' AND op = 'delete' AND status = 'pending'
@@ -1310,7 +1340,7 @@ impl Database {
         &self,
         collection: &crate::sync::client::CloudCollection,
     ) -> Result<(), rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
         conn.execute(
             "INSERT INTO collections (id, name, color, icon, sort_order, created_at, updated_at, sync_status, deleted_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6, 'synced', NULL)
@@ -1335,7 +1365,7 @@ impl Database {
     }
 
     pub fn delete_remote_collection(&self, id: &str) -> Result<(), rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
         conn.execute("DELETE FROM item_collections WHERE collection_id = ?1", params![id])?;
         conn.execute("DELETE FROM collections WHERE id = ?1", params![id])?;
         Ok(())
@@ -1346,7 +1376,7 @@ impl Database {
         link: &crate::sync::client::CloudItemCollection,
     ) -> Result<(), rusqlite::Error> {
         self.ensure_collection_exists(&link.collection_id)?;
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
         conn.execute(
             "INSERT INTO item_collections (item_id, collection_id, sync_status)
              VALUES (?1, ?2, 'synced')
@@ -1357,7 +1387,7 @@ impl Database {
     }
 
     pub fn delete_remote_item_collection(&self, item_id: &str, collection_id: &str) -> Result<(), rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
         conn.execute(
             "DELETE FROM item_collections WHERE item_id = ?1 AND collection_id = ?2",
             params![item_id, collection_id],
@@ -1374,8 +1404,9 @@ impl Database {
             self.ensure_device_exists(device_id)?;
         }
 
-        let conn = self.conn.lock().unwrap();
-        conn.execute(
+        let mut conn = self.conn.lock();
+        let tx = conn.transaction()?;
+        tx.execute(
             "INSERT INTO items (
                 id, kind, content_type, display_title, preview_text, char_count,
                 url, url_title, url_domain, code_language, line_count,
@@ -1389,7 +1420,9 @@ impl Database {
                 is_pinned = excluded.is_pinned,
                 is_favorited = excluded.is_favorited,
                 updated_at = excluded.updated_at,
-                sync_status = 'synced'",
+                sync_status = 'synced'
+            WHERE excluded.updated_at > items.updated_at
+               OR items.sync_status != 'pending'",
             params![
                 item.id,
                 item.kind,
@@ -1415,23 +1448,21 @@ impl Database {
             ],
         )?;
 
-        conn.execute("DELETE FROM items_fts WHERE id = ?1", params![item.id])?;
-        conn.execute(
+        // Rebuild the search index from the stored row (not the remote
+        // payload) — the upsert above may have kept newer local values.
+        tx.execute("DELETE FROM items_fts WHERE id = ?1", params![item.id])?;
+        tx.execute(
             "INSERT INTO items_fts (id, display_title, preview_text, url_domain, tags, trigger)
-             VALUES (?1, ?2, ?3, ?4, '', ?5)",
-            params![
-                item.id,
-                item.display_title,
-                item.preview_text,
-                item.url_domain,
-                item.trigger,
-            ],
+             SELECT id, display_title, preview_text, url_domain, '', trigger
+             FROM items WHERE id = ?1 AND deleted_at IS NULL",
+            params![item.id],
         )?;
+        tx.commit()?;
         Ok(())
     }
 
     pub fn upsert_remote_device(&self, device: &crate::sync::client::CloudDevice) -> Result<(), rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
         let is_current: i64 = conn
             .query_row(
                 "SELECT COUNT(*) FROM devices WHERE id = ?1 AND is_current = 1",
@@ -1467,7 +1498,7 @@ impl Database {
     }
 
     fn ensure_device_exists(&self, device_id: &str) -> Result<(), rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
         let exists: i64 = conn.query_row(
             "SELECT COUNT(*) FROM devices WHERE id = ?1",
             params![device_id],
@@ -1485,7 +1516,7 @@ impl Database {
     }
 
     fn ensure_collection_exists(&self, collection_id: &str) -> Result<(), rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
         let exists: i64 = conn.query_row(
             "SELECT COUNT(*) FROM collections WHERE id = ?1",
             params![collection_id],
@@ -1628,6 +1659,108 @@ fn detect_code(text: Option<&str>) -> (Option<String>, Option<i64>) {
     };
     let lines = text.lines().count() as i64;
     (Some(lang.to_string()), Some(lines))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_db() -> (Database, tempdir::TempDirGuard) {
+        let guard = tempdir::TempDirGuard::new();
+        let db = Database::open(guard.path().join("test.db")).expect("open test db");
+        (db, guard)
+    }
+
+    /// Minimal temp-dir helper (no extra dev-dependency).
+    mod tempdir {
+        use std::path::{Path, PathBuf};
+
+        pub struct TempDirGuard(PathBuf);
+
+        impl TempDirGuard {
+            pub fn new() -> Self {
+                let dir = std::env::temp_dir().join(format!("memora-test-{}", uuid::Uuid::new_v4()));
+                std::fs::create_dir_all(&dir).expect("create temp dir");
+                Self(dir)
+            }
+
+            pub fn path(&self) -> &Path {
+                &self.0
+            }
+        }
+
+        impl Drop for TempDirGuard {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+    }
+
+    #[test]
+    fn insert_search_delete_keeps_fts_consistent() {
+        let (db, _guard) = test_db();
+        let device_id = db.ensure_device().expect("device");
+
+        let item = db
+            .insert_item(
+                &device_id,
+                "text",
+                Some("hello transactional world".to_string()),
+                None,
+                None,
+                None,
+                None,
+                "hash-1",
+            )
+            .expect("insert");
+
+        let results = db
+            .search(&SearchFiltersDto {
+                query: "transactional".to_string(),
+                device: None,
+                content_type: None,
+                tag: None,
+                collection: None,
+                is_pinned: None,
+                is_favorite: None,
+                is_snippet: None,
+                date_today: None,
+                in_collection: None,
+            })
+            .expect("search");
+        assert_eq!(results.len(), 1, "inserted item should be searchable");
+
+        db.delete_item(&item.id).expect("delete");
+        let results = db
+            .search(&SearchFiltersDto {
+                query: "transactional".to_string(),
+                device: None,
+                content_type: None,
+                tag: None,
+                collection: None,
+                is_pinned: None,
+                is_favorite: None,
+                is_snippet: None,
+                date_today: None,
+                in_collection: None,
+            })
+            .expect("search after delete");
+        assert!(results.is_empty(), "deleted item must leave no ghost search hits");
+    }
+
+    #[test]
+    fn duplicate_hash_within_window_dedupes() {
+        let (db, _guard) = test_db();
+        let device_id = db.ensure_device().expect("device");
+
+        let first = db
+            .insert_item(&device_id, "text", Some("dup".to_string()), None, None, None, None, "same-hash")
+            .expect("insert 1");
+        let second = db
+            .insert_item(&device_id, "text", Some("dup".to_string()), None, None, None, None, "same-hash")
+            .expect("insert 2");
+        assert_eq!(first.id, second.id, "same hash within window should dedupe");
+    }
 }
 
 fn format_relative(iso: &str) -> String {

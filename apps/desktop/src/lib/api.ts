@@ -41,8 +41,8 @@ export async function toggleClipboardPause(): Promise<boolean> {
   return invoke<boolean>("toggle_clipboard_pause");
 }
 
-export async function copyItem(id: string, plainText = false): Promise<void> {
-  return invoke("copy_item", { id, plainText });
+export async function copyItem(id: string): Promise<void> {
+  return invoke("copy_item", { id });
 }
 
 export async function togglePin(id: string): Promise<void> {
@@ -165,6 +165,22 @@ export async function repairSync(): Promise<import("@memora/shared-types").SyncR
 
 export async function openSettings(): Promise<void> {
   return invoke("open_settings");
+}
+
+export async function openLogsDir(): Promise<void> {
+  return invoke("open_logs_dir");
+}
+
+export async function getDiagnostics(
+  includeLogs: boolean,
+): Promise<import("@memora/shared-types").Diagnostics> {
+  return invoke("get_diagnostics", { includeLogs });
+}
+
+export async function submitFeedback(
+  report: import("@memora/shared-types").FeedbackReport,
+): Promise<import("@memora/shared-types").FeedbackOutcome> {
+  return invoke("submit_feedback", { report });
 }
 
 export async function getAppSettings(): Promise<import("@memora/shared-types").AppSettings> {

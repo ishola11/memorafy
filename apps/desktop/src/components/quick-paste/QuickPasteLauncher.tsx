@@ -122,11 +122,6 @@ export function QuickPasteLauncher() {
       showActionToast("Copied to clipboard");
       closeQuickPaste();
     },
-    onCopyPlain: async () => {
-      await copyItem(card.id, true);
-      showActionToast("Copied as plain text");
-      closeQuickPaste();
-    },
     onPin: async () => {
       await togglePin(card.id);
       await refresh();

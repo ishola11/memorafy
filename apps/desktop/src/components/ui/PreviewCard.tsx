@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
   Clipboard,
-  ClipboardCopy,
   Code2,
   FolderPlus,
   Globe,
@@ -18,6 +17,7 @@ import type { Collection, PreviewCard as PreviewCardType } from "@memora/shared-
 import { CollectionPickerMenu } from "@/components/ui/CollectionPickerMenu";
 import { getItemCollections } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { useActionToastStore } from "@/stores/action-toast-store";
 
 const kindIcons = {
   text: Type,
@@ -30,7 +30,6 @@ const kindIcons = {
 
 type BusyAction =
   | "copy"
-  | "copyPlain"
   | "pin"
   | "favorite"
   | "delete"
@@ -44,7 +43,6 @@ interface PreviewCardProps {
   selected?: boolean;
   onSelect?: () => void;
   onCopy?: () => void | Promise<void>;
-  onCopyPlain?: () => void | Promise<void>;
   onPin?: () => void | Promise<void>;
   onFavorite?: () => void | Promise<void>;
   onDelete?: () => void | Promise<void>;
@@ -101,6 +99,12 @@ async function runAction(action: () => void | Promise<void>, setBusy: (v: BusyAc
   setBusy(key);
   try {
     await action();
+  } catch (err) {
+    // Central failure surface for card actions — never a silent no-op.
+    console.error(`card action ${key} failed:`, err);
+    useActionToastStore
+      .getState()
+      .showActionToast("That didn't work — please try again.", "error");
   } finally {
     setBusy(null);
   }
@@ -111,7 +115,6 @@ export function PreviewCard({
   selected = false,
   onSelect,
   onCopy,
-  onCopyPlain,
   onPin,
   onFavorite,
   onDelete,
@@ -153,7 +156,6 @@ export function PreviewCard({
   const showCollections = collections.length > 0 && (onAddToCollection || onRemoveFromCollection);
   const hasActions = Boolean(
     onCopy ||
-      onCopyPlain ||
       onPin ||
       onFavorite ||
       onDelete ||
@@ -180,6 +182,11 @@ export function PreviewCard({
         flashTimerRef.current = setTimeout(() => setFlashCollectionId(null), 1200);
       }
       setMenuOpen(false);
+    } catch (err) {
+      console.error("collection toggle failed:", err);
+      useActionToastStore
+        .getState()
+        .showActionToast("Couldn't update the collection — please try again.", "error");
     } finally {
       setBusyAction(null);
     }
@@ -253,16 +260,6 @@ export function PreviewCard({
                 onClick={() => void runAction(onCopy, setBusyAction, "copy")}
               >
                 <Clipboard className="h-3.5 w-3.5" />
-              </ActionButton>
-            )}
-            {onCopyPlain && (
-              <ActionButton
-                label="Copy as plain text"
-                disabled={isBusy}
-                busy={busyAction === "copyPlain"}
-                onClick={() => void runAction(onCopyPlain, setBusyAction, "copyPlain")}
-              >
-                <ClipboardCopy className="h-3.5 w-3.5" />
               </ActionButton>
             )}
             {onPin && (

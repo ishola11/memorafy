@@ -76,6 +76,17 @@ memora/
 └── docs/architecture/     # Architecture docs
 ```
 
+## Logs & Diagnostics
+
+Memora writes daily-rotating logs (last 7 days kept) to the app data directory:
+
+- **Windows:** `%APPDATA%\com.memora.desktop\logs\`
+- **macOS:** `~/Library/Application Support/com.memora.desktop/logs/`
+
+Open them from **Settings → About → Open logs folder**. To report a bug or request a
+feature, use **Settings → Feedback** — it drafts a GitHub issue you review before sending,
+optionally including diagnostics you can inspect first.
+
 ## Development Status
 
 See [PROGRESS.md](./PROGRESS.md) for implementation checklist.

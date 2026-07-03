@@ -103,7 +103,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         api.getClipboardPaused(),
       ]);
       set({ timeline, collections, clipboardPaused, loading: false });
-    } catch {
+    } catch (err) {
+      console.error("refresh failed:", err);
       set({ loading: false });
     }
   },
@@ -123,7 +124,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         ...tabSearchFilters(activeTab, selectedCollectionId),
       });
       set({ results, selectedIndex: 0, loading: false });
-    } catch {
+    } catch (err) {
+      console.error("search failed:", err);
       set({ loading: false });
     }
   },

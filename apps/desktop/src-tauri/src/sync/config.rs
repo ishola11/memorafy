@@ -16,8 +16,20 @@ impl SyncConfig {
             return Some(config);
         }
 
-        let url = embedded::SUPABASE_URL?;
-        let anon_key = embedded::SUPABASE_ANON_KEY?;
+        Self::build(embedded::SUPABASE_URL?, embedded::SUPABASE_ANON_KEY?)
+    }
+
+    fn from_runtime_env() -> Option<Self> {
+        let url = env::var("SUPABASE_URL").ok()?;
+        let anon_key = env::var("SUPABASE_ANON_KEY").ok()?;
+        Self::build(&url, &anon_key)
+    }
+
+    /// Trims stray whitespace/newlines (common when secrets are pasted into
+    /// env files or CI) so they can't later corrupt HTTP headers.
+    fn build(url: &str, anon_key: &str) -> Option<Self> {
+        let url = url.trim();
+        let anon_key = anon_key.trim();
         if url.is_empty() || anon_key.is_empty() {
             return None;
         }
@@ -25,15 +37,6 @@ impl SyncConfig {
             url: url.to_string(),
             anon_key: anon_key.to_string(),
         })
-    }
-
-    fn from_runtime_env() -> Option<Self> {
-        let url = env::var("SUPABASE_URL").ok()?;
-        let anon_key = env::var("SUPABASE_ANON_KEY").ok()?;
-        if url.is_empty() || anon_key.is_empty() {
-            return None;
-        }
-        Some(Self { url, anon_key })
     }
 
     pub fn rest_url(&self) -> String {

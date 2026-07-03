@@ -3,6 +3,7 @@ import {
   Cloud,
   Loader2,
   LogOut,
+  MessageSquare,
   Monitor,
   Moon,
   Palette,
@@ -13,6 +14,7 @@ import {
   Wrench,
   FolderOpen,
   Download,
+  FileText,
   Info,
 } from "lucide-react";
 import {
@@ -23,6 +25,7 @@ import {
   getCollections,
   getDevices,
   getSyncState,
+  openLogsDir,
   repairSync,
   setHistoryRetention,
   setLaunchAtLogin,
@@ -33,6 +36,7 @@ import { applyTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 import { ClearHistorySettings } from "@/components/settings/ClearHistorySettings";
 import { CollectionsSettings } from "@/components/settings/CollectionsSettings";
+import { FeedbackSettings } from "@/components/settings/FeedbackSettings";
 import type {
   AppSettings,
   Collection,
@@ -55,7 +59,15 @@ const THEME_OPTIONS: { value: ThemePreference; label: string; icon: typeof Sun }
   { value: "dark", label: "Dark", icon: Moon },
 ];
 
-type SettingsSection = "account" | "devices" | "retention" | "collections" | "general" | "appearance" | "about";
+type SettingsSection =
+  | "account"
+  | "devices"
+  | "retention"
+  | "collections"
+  | "general"
+  | "appearance"
+  | "feedback"
+  | "about";
 
 const NAV: { id: SettingsSection; label: string; icon: typeof Cloud }[] = [
   { id: "account", label: "Account & Sync", icon: Cloud },
@@ -64,6 +76,7 @@ const NAV: { id: SettingsSection; label: string; icon: typeof Cloud }[] = [
   { id: "collections", label: "Collections", icon: FolderOpen },
   { id: "general", label: "General", icon: Power },
   { id: "appearance", label: "Appearance", icon: Palette },
+  { id: "feedback", label: "Feedback", icon: MessageSquare },
   { id: "about", label: "About", icon: Info },
 ];
 
@@ -520,6 +533,8 @@ export function SettingsPanel() {
             </div>
           )}
 
+          {section === "feedback" && <FeedbackSettings userEmail={state.userEmail} />}
+
           {section === "about" && (
             <div className="space-y-6">
               <div>
@@ -557,6 +572,18 @@ export function SettingsPanel() {
                   {updateMessage}
                 </p>
               )}
+              <button
+                type="button"
+                onClick={() => void openLogsDir().catch(() => setError("Could not open the logs folder."))}
+                className="flex w-full items-center justify-center gap-2 rounded-xl border border-border/60 py-2.5 text-sm transition-colors hover:bg-surface-elevated"
+              >
+                <FileText className="h-4 w-4" />
+                Open logs folder
+              </button>
+              <p className="text-xs text-muted">
+                Logs help diagnose sync or capture issues. They stay on this device unless you
+                share them.
+              </p>
             </div>
           )}
 

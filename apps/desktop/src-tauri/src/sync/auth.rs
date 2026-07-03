@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
 use crate::db::Database;
@@ -28,10 +28,12 @@ pub struct AuthSession {
     pub expires_at: i64,
 }
 
-pub fn save_session(db: &Database, session: &AuthSession, email: &str) -> Result<(), rusqlite::Error> {
-    let json = serde_json::to_string(session).expect("session json");
-    db.set_setting("auth_session", &json)?;
-    db.set_setting("user_email", email)?;
+pub fn save_session(db: &Database, session: &AuthSession, email: &str) -> Result<(), String> {
+    let json = serde_json::to_string(session)
+        .map_err(|e| format!("could not serialize session: {e}"))?;
+    db.set_setting("auth_session", &json)
+        .map_err(|e| e.to_string())?;
+    db.set_setting("user_email", email).map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -39,7 +41,15 @@ pub fn load_session(db: &Database) -> Result<Option<AuthSession>, rusqlite::Erro
     let Some(raw) = db.get_setting("auth_session")? else {
         return Ok(None);
     };
-    Ok(serde_json::from_str(&raw).ok())
+    match serde_json::from_str(&raw) {
+        Ok(session) => Ok(Some(session)),
+        Err(e) => {
+            // A corrupt session row means the user is effectively signed out;
+            // log it so "why did I get signed out?" reports are debuggable.
+            tracing::warn!("stored session is corrupt, treating as signed out: {e}");
+            Ok(None)
+        }
+    }
 }
 
 pub fn clear_session(db: &Database) -> Result<(), rusqlite::Error> {
@@ -84,21 +94,29 @@ pub fn session_from_auth_response(value: &serde_json::Value) -> Result<AuthSessi
     })
 }
 
-/// Parses Supabase-style expiry timestamps; covered by unit test for future session refresh work.
-#[allow(dead_code)]
-pub fn parse_expires_at(iso: &str) -> i64 {
-    DateTime::parse_from_rfc3339(iso)
-        .map(|d| d.timestamp())
-        .unwrap_or_else(|_| Utc::now().timestamp() + 3600)
-}
-
 #[cfg(test)]
 mod tests {
-    use super::parse_expires_at;
+    use super::*;
 
     #[test]
-    fn parse_expires_at_accepts_rfc3339() {
-        let ts = parse_expires_at("2026-01-01T00:00:00Z");
-        assert!(ts > 0);
+    fn session_expiring_within_margin_counts_as_expired() {
+        let session = AuthSession {
+            access_token: "t".into(),
+            refresh_token: "r".into(),
+            user_id: "u".into(),
+            expires_at: Utc::now().timestamp() + 30,
+        };
+        assert!(session_expired(&session));
+    }
+
+    #[test]
+    fn fresh_session_is_not_expired() {
+        let session = AuthSession {
+            access_token: "t".into(),
+            refresh_token: "r".into(),
+            user_id: "u".into(),
+            expires_at: Utc::now().timestamp() + 3600,
+        };
+        assert!(!session_expired(&session));
     }
 }

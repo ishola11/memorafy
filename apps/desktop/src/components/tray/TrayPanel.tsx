@@ -79,10 +79,6 @@ export function TrayPanel() {
       await copyItem(card.id);
       showActionToast("Copied to clipboard");
     },
-    onCopyPlain: async () => {
-      await copyItem(card.id, true);
-      showActionToast("Copied as plain text");
-    },
     onPin: async () => {
       await togglePin(card.id);
       await refresh();

@@ -72,9 +72,20 @@ pub async fn run_realtime_loop(engine: Arc<SyncEngine>) {
     }
 }
 
+const REALTIME_TOPIC: &str = "realtime:public:memora";
+/// Renew the socket's JWT this long before it expires. Without renewal,
+/// Supabase silently stops delivering rows once the join token expires
+/// (~1 hour) even though the socket stays open.
+const TOKEN_RENEWAL_MARGIN_SECS: i64 = 120;
+
+fn seconds_until_renewal(expires_at: i64) -> u64 {
+    let now = chrono::Utc::now().timestamp();
+    (expires_at - TOKEN_RENEWAL_MARGIN_SECS - now).max(30) as u64
+}
+
 async fn run_session(engine: Arc<SyncEngine>) -> Result<(), RealtimeFailure> {
     let config = engine.config().ok_or(EnsureSessionError::NotConfigured)?;
-    let session = super::ensure_session(&engine).await?;
+    let mut session = super::ensure_session(&engine).await?;
 
     let ws_url = format!(
         "{}?apikey={}&vsn=1.0.0",
@@ -88,7 +99,7 @@ async fn run_session(engine: Arc<SyncEngine>) -> Result<(), RealtimeFailure> {
     let (mut write, mut read) = ws.split();
 
     let join = serde_json::json!({
-        "topic": "realtime:public:memora",
+        "topic": REALTIME_TOPIC,
         "event": "phx_join",
         "payload": {
             "config": {
@@ -121,9 +132,21 @@ async fn run_session(engine: Arc<SyncEngine>) -> Result<(), RealtimeFailure> {
         .await
         .map_err(|e| RealtimeFailure::Transient(e.to_string()))?;
 
+    tracing::info!("realtime connected");
+
+    // Catch up on anything that changed while the socket was down
+    // (disconnects, sleep/wake, first connect after being offline).
+    if let Err(e) = engine.pull_incremental(&session).await {
+        tracing::warn!("catch-up pull after realtime connect: {e}");
+    }
+
     let mut heartbeat = interval(TokioDuration::from_secs(25));
 
     loop {
+        let renewal_sleep =
+            tokio::time::sleep(TokioDuration::from_secs(seconds_until_renewal(session.expires_at)));
+        tokio::pin!(renewal_sleep);
+
         tokio::select! {
             _ = heartbeat.tick() => {
                 let ping = serde_json::json!({
@@ -136,6 +159,22 @@ async fn run_session(engine: Arc<SyncEngine>) -> Result<(), RealtimeFailure> {
                     .send(Message::Text(ping.to_string().into()))
                     .await
                     .map_err(|e| RealtimeFailure::Transient(e.to_string()))?;
+            }
+            _ = &mut renewal_sleep => {
+                // Refresh the JWT and hand the new token to the channel so
+                // postgres_changes delivery survives past token expiry.
+                session = super::ensure_session(&engine).await?;
+                let renew = serde_json::json!({
+                    "topic": REALTIME_TOPIC,
+                    "event": "access_token",
+                    "payload": { "access_token": session.access_token },
+                    "ref": "at"
+                });
+                write
+                    .send(Message::Text(renew.to_string().into()))
+                    .await
+                    .map_err(|e| RealtimeFailure::Transient(e.to_string()))?;
+                tracing::debug!("realtime access token renewed");
             }
             msg = read.next() => {
                 match msg {

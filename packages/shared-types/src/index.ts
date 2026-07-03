@@ -173,3 +173,33 @@ export interface UpdateSnippetInput {
   text: string;
   trigger?: string | null;
 }
+
+export interface Diagnostics {
+  appVersion: string;
+  os: string;
+  arch: string;
+  syncConfigured: boolean;
+  loggedIn: boolean;
+  pendingCount: number;
+  deviceId: string | null;
+  accountId: string | null;
+  recentLogs: string | null;
+}
+
+export type FeedbackKind = 'bug' | 'feature';
+
+export interface FeedbackSection {
+  label: string;
+  value: string;
+}
+
+export interface FeedbackReport {
+  kind: FeedbackKind;
+  title: string;
+  sections: FeedbackSection[];
+  contactEmail?: string | null;
+  /** Only set when the user explicitly consented in the UI. */
+  diagnostics?: Diagnostics | null;
+}
+
+export type FeedbackOutcome = { type: 'openUrl'; url: string };

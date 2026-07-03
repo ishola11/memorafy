@@ -3,6 +3,8 @@
 pub mod clipboard;
 pub mod commands;
 pub mod db;
+pub mod feedback;
+pub mod logging;
 pub mod macos_popover;
 pub mod macos_quick_paste;
 pub mod search;
@@ -50,9 +52,19 @@ impl AppState {
     }
 }
 
+/// Second launches focus the existing instance instead of spawning a
+/// duplicate watcher/sync engine that would race on the SQLite database.
+fn single_instance_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
+    tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+        tracing::info!("second instance launch — focusing existing instance");
+        show_quick_paste(app);
+    })
+}
+
 #[cfg(target_os = "macos")]
 fn app_builder() -> tauri::Builder<tauri::Wry> {
     tauri::Builder::default()
+        .plugin(single_instance_plugin())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_process::init())
         .plugin(
@@ -77,6 +89,7 @@ fn app_builder() -> tauri::Builder<tauri::Wry> {
 #[cfg(not(target_os = "macos"))]
 fn app_builder() -> tauri::Builder<tauri::Wry> {
     tauri::Builder::default()
+        .plugin(single_instance_plugin())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_process::init())
         .plugin(
@@ -114,7 +127,8 @@ fn init_updater_plugin(app: &tauri::AppHandle) -> tauri::Result<()> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tracing_subscriber::fmt::init();
+    logging::init();
+    tracing::info!(version = env!("CARGO_PKG_VERSION"), "Memora starting");
 
     app_builder()
         .setup(|app| {
@@ -278,6 +292,9 @@ pub fn run() {
             commands::get_theme_preference,
             commands::set_theme_preference,
             commands::open_settings,
+            commands::open_logs_dir,
+            commands::get_diagnostics,
+            commands::submit_feedback,
             commands::force_sync_now,
             commands::repair_sync,
         ])

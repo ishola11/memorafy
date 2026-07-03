@@ -71,6 +71,17 @@
 - [x] **Settings** — `ActivationPolicy::Regular` on open, Accessory restore on close; hides tray popover
 - [x] **Windows** — unchanged custom sidebar panel on left-click
 
+## Phase 4: Production Hardening — Wave 1 (2026-07-02)
+
+- [x] **Logging** — daily-rotating file logs (7 kept) in the app data dir (`logs/`), panic hook so release aborts leave a trace, "Open logs folder" in Settings → About
+- [x] **Single instance** — second launch focuses the running app instead of racing on SQLite
+- [x] **Capture correctness** — removed dev-specific noise filter that silently dropped user text; image dedupe hashes pixels (not just dimensions); watcher retries clipboard init; >10 MB text skipped with a log line
+- [x] **Auth resilience** — transient refresh failures (5xx/429/network) no longer sign the user out; friendly sign-in error messages; malformed keys fail gracefully instead of panicking
+- [x] **Sync engine** — event-driven wakeups (2 s only while pending, 30 s idle fallback); per-entity exponential push backoff (5 s → 10 min); incremental pull every 60 s via `updated_at` cursor (recovers missed realtime events, includes deletions); realtime JWT renewed on-socket before expiry; catch-up pull on every realtime (re)connect; synced queue rows pruned hourly
+- [x] **Data integrity** — multi-statement writes (items + FTS index + sync queue) are transactional; remote upserts respect newer local pending edits (last-write-wins by `updated_at`); `items(sync_status)` index
+- [x] **Feedback** — new Settings section: bug reports & feature requests with diagnostics preview and explicit consent; provider-abstracted submission (currently drafts a prefilled GitHub issue the user reviews in their browser)
+- [x] **Cleanup** — removed fake "Copy as plain text" action, dead `clear_all_history`/`parse_expires_at`, unreferenced local migration; card action failures now show an error toast; versions unified at 0.1.8
+
 ## Next Up
 
 1. Run `003_collections_realtime.sql` in Supabase if project predates this update

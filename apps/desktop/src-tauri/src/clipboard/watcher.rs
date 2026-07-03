@@ -5,24 +5,37 @@ use std::time::{Duration, Instant};
 use arboard::Clipboard;
 use tauri::{AppHandle, Emitter, Manager};
 
-use super::content::{classify, hash_content, CapturedContent};
+use super::content::{classify, hash_content, hash_image, CapturedContent};
 use crate::AppState;
 
 /// Watcher polls every 400ms; suppress enough iterations to cover programmatic writes.
 const SUPPRESS_ITERATIONS: u32 = 20;
-const DEDUPE_WINDOW: Duration = Duration::from_secs(300);
 const RAPID_CAPTURE_WINDOW: Duration = Duration::from_secs(30);
 const RECENT_PLAIN_TEXT_LIMIT: i64 = 8;
+/// Skip pathological captures (multi-hundred-MB selections) that would bloat
+/// SQLite and stall the UI. The live clipboard is untouched — we just don't
+/// record the item in history.
+const MAX_TEXT_CAPTURE_BYTES: usize = 10 * 1024 * 1024;
+const CLIPBOARD_INIT_RETRY: Duration = Duration::from_secs(5);
 
 pub fn start_watcher(app: AppHandle) {
     thread::spawn(move || {
-        let mut clipboard = match Clipboard::new() {
-            Ok(c) => c,
-            Err(e) => {
-                tracing::error!("clipboard init failed: {e}");
-                return;
+        // The clipboard can be transiently unavailable at startup (another
+        // process holding it, session still initializing). Keep retrying —
+        // a clipboard manager with a dead watcher is silently useless.
+        let mut clipboard = loop {
+            match Clipboard::new() {
+                Ok(c) => break c,
+                Err(e) => {
+                    tracing::warn!(
+                        "clipboard unavailable, retrying in {}s: {e}",
+                        CLIPBOARD_INIT_RETRY.as_secs()
+                    );
+                    thread::sleep(CLIPBOARD_INIT_RETRY);
+                }
             }
         };
+        tracing::info!("clipboard watcher started");
 
         let mut last_hash = String::new();
 
@@ -47,7 +60,15 @@ pub fn start_watcher(app: AppHandle) {
             }
 
             if let Ok(text) = clipboard.get_text() {
-                if text.is_empty() || should_ignore_clipboard_text(&text) {
+                if text.trim().is_empty() {
+                    continue;
+                }
+                if text.len() > MAX_TEXT_CAPTURE_BYTES {
+                    tracing::info!(
+                        "skipping oversized clipboard text ({} bytes > {} max)",
+                        text.len(),
+                        MAX_TEXT_CAPTURE_BYTES
+                    );
                     continue;
                 }
                 let (content_type, captured) = classify(&text);
@@ -66,9 +87,10 @@ pub fn start_watcher(app: AppHandle) {
                     tracing::error!("persist capture: {e}");
                 } else {
                     let _ = app.emit("items-updated", ());
+                    state.sync_engine.request_sync();
                 }
             } else if let Ok(img) = clipboard.get_image() {
-                let hash = hash_content("image", None, Some(&format!("{}x{}", img.width, img.height)));
+                let hash = hash_image(img.width, img.height, &img.bytes);
                 if hash == last_hash {
                     continue;
                 }
@@ -76,11 +98,13 @@ pub fn start_watcher(app: AppHandle) {
                     last_hash = hash;
                     continue;
                 }
-                if let Err(e) = persist_image(&state, &app, &img, &mut last_hash) {
+                last_hash = hash.clone();
+                if let Err(e) = persist_image(&state, &img, &hash) {
                     tracing::error!("persist image: {e}");
                 } else {
                     record_capture(&state, &hash);
                     let _ = app.emit("items-updated", ());
+                    state.sync_engine.request_sync();
                 }
             }
         }
@@ -120,17 +144,10 @@ fn persist_capture(
 
 fn persist_image(
     state: &AppState,
-    app: &AppHandle,
     image: &arboard::ImageData,
-    last_hash: &mut String,
+    hash: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     use std::io::Write;
-
-    let hash = hash_content("image", None, Some(&format!("{}x{}", image.width, image.height)));
-    if hash == *last_hash {
-        return Ok(());
-    }
-    *last_hash = hash.clone();
 
     let filename = format!("{}.png", uuid::Uuid::new_v4());
     let path = state.db.blobs_dir().join(&filename);
@@ -147,11 +164,9 @@ fn persist_image(
         Some(path.to_string_lossy().to_string()),
         Some(size),
         None,
-        &hash,
+        hash,
     )?;
     state.db.touch_device(&state.device_id())?;
-
-    let _ = app;
     Ok(())
 }
 
@@ -203,27 +218,5 @@ fn should_skip_capture(state: &AppState, hash: &str, plain_text: Option<&str>) -
         }
     }
 
-    let _ = DEDUPE_WINDOW;
     false
-}
-
-/// Skip terminal output, compiler warnings, and other non-user clipboard noise.
-fn should_ignore_clipboard_text(text: &str) -> bool {
-    let trimmed = text.trim();
-    if trimmed.len() < 3 {
-        return true;
-    }
-    let noise_markers = [
-        "warning:",
-        "error:",
-        "Finished `dev` profile",
-        "Finished `release` profile",
-        "Compiling memora-desktop",
-        "Running `target/",
-        "--> src",
-        "--> src\\",
-        "FOREIGN KEY constraint",
-        "memora_desktop_lib::",
-    ];
-    noise_markers.iter().any(|m| trimmed.contains(m))
 }

@@ -7,18 +7,39 @@ pub use auth::AuthSession;
 pub use client::{CloudDevice, CloudItem};
 pub use config::SyncConfig;
 
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager};
+use tokio::sync::Notify;
 
 use crate::clipboard::write_clipboard;
 use crate::db::{
     Database, SETTING_LAST_AUTH_USER_ID, SETTING_LOCAL_DEVICE_ID, SETTING_LOCAL_DEVICE_NAME,
 };
 use crate::AppState;
+
+/// Fast cadence while there is pending work; slow fallback when idle.
+/// `request_sync()` wakes the loop immediately, so the idle interval is only
+/// a safety net — it is not the latency users see.
+const SYNC_ACTIVE_INTERVAL: Duration = Duration::from_secs(2);
+const SYNC_IDLE_INTERVAL: Duration = Duration::from_secs(30);
+/// Incremental pull cadence — recovers changes the realtime socket missed.
+const INCREMENTAL_PULL_INTERVAL: Duration = Duration::from_secs(60);
+/// Exponential push backoff: 5s, 10s, 20s … capped at 10 minutes.
+const BACKOFF_BASE: Duration = Duration::from_secs(5);
+const BACKOFF_MAX: Duration = Duration::from_secs(600);
+/// Cursor (server `updated_at`) of the newest change we've pulled.
+const SETTING_LAST_PULL_CURSOR: &str = "last_pull_cursor";
+
+#[derive(Clone, Copy)]
+struct BackoffEntry {
+    failures: u32,
+    next_attempt: Instant,
+}
 
 pub struct SyncEngine {
     db: Arc<Database>,
@@ -27,6 +48,11 @@ pub struct SyncEngine {
     client: Option<client::SupabaseClient>,
     last_presence: Mutex<Option<Instant>>,
     last_retention_purge: Mutex<Option<Instant>>,
+    last_pull: Mutex<Option<Instant>>,
+    work_notify: Notify,
+    /// Per-entity push backoff (in-memory; resets on restart, which is fine —
+    /// a restart is a reasonable moment to retry everything once).
+    backoff: Mutex<HashMap<String, BackoffEntry>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -92,7 +118,50 @@ impl SyncEngine {
             client,
             last_presence: Mutex::new(None),
             last_retention_purge: Mutex::new(None),
+            last_pull: Mutex::new(None),
+            work_notify: Notify::new(),
+            backoff: Mutex::new(HashMap::new()),
         }
+    }
+
+    /// Wake the sync loop now (called after local mutations). Safe from any
+    /// thread; a no-op when nothing is pending.
+    pub fn request_sync(&self) {
+        self.work_notify.notify_one();
+    }
+
+    fn backoff_due(&self, key: &str) -> bool {
+        self.backoff
+            .lock()
+            .get(key)
+            .map(|e| Instant::now() >= e.next_attempt)
+            .unwrap_or(true)
+    }
+
+    fn backoff_record_failure(&self, key: &str) {
+        let mut map = self.backoff.lock();
+        let failures = map.get(key).map(|e| e.failures + 1).unwrap_or(1);
+        let delay = BACKOFF_BASE
+            .saturating_mul(2u32.saturating_pow(failures.saturating_sub(1)))
+            .min(BACKOFF_MAX);
+        map.insert(
+            key.to_string(),
+            BackoffEntry {
+                failures,
+                next_attempt: Instant::now() + delay,
+            },
+        );
+        if failures == 1 || failures % 5 == 0 {
+            tracing::warn!("push backoff for {key}: attempt {failures}, next retry in {delay:?}");
+        }
+    }
+
+    fn backoff_clear(&self, key: &str) {
+        self.backoff.lock().remove(key);
+    }
+
+    fn backoff_reset_all(&self) {
+        self.backoff.lock().clear();
     }
 
     pub fn is_configured(&self) -> bool {
@@ -123,8 +192,8 @@ impl SyncEngine {
 
     pub async fn login(&self, email: &str, password: &str) -> Result<SyncStateDto, String> {
         let client = self.client.as_ref().ok_or("Supabase not configured")?;
-        let session = client.login(email, password).await.map_err(|e| e.to_string())?;
-        auth::save_session(&self.db, &session, email).map_err(|e| e.to_string())?;
+        let session = client.login(email, password).await?;
+        auth::save_session(&self.db, &session, email)?;
         self.bootstrap_after_auth(&session).await?;
         let _ = self.sync_tick().await;
         self.get_state()
@@ -143,6 +212,8 @@ impl SyncEngine {
             .await
             .map_err(ensure_session_error_message)?;
 
+        // Manual sync expresses user intent: retry everything immediately.
+        self.backoff_reset_all();
         self.bootstrap_after_auth(&session).await?;
         let report = self
             .sync_tick()
@@ -166,6 +237,7 @@ impl SyncEngine {
             .await
             .map_err(ensure_session_error_message)?;
 
+        self.backoff_reset_all();
         let queue_cleared = self
             .db
             .clear_pending_sync_queue()
@@ -192,7 +264,14 @@ impl SyncEngine {
     pub fn start(self: Arc<Self>) {
         let engine = self.clone();
         std::thread::spawn(move || {
-            let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+            let rt = match tokio::runtime::Runtime::new() {
+                Ok(rt) => rt,
+                Err(e) => {
+                    // Sync is unavailable but the local app must keep working.
+                    tracing::error!("sync disabled — could not start async runtime: {e}");
+                    return;
+                }
+            };
             rt.block_on(async {
                 if engine.is_configured() {
                     if let Ok(Some(session)) = auth::load_session(&engine.db) {
@@ -208,13 +287,106 @@ impl SyncEngine {
 
                 loop {
                     engine.run_retention_if_due();
+
                     if let Err(e) = engine.sync_tick().await {
                         tracing::debug!("sync tick: {e}");
                     }
-                    tokio::time::sleep(Duration::from_secs(2)).await;
+                    if let Err(e) = engine.pull_incremental_if_due().await {
+                        tracing::debug!("incremental pull: {e}");
+                    }
+
+                    // Fast cadence only while work is pending; otherwise sleep
+                    // until woken by request_sync() or the idle fallback.
+                    let pending = engine.db.pending_sync_count().unwrap_or(0);
+                    let interval = if pending > 0 {
+                        SYNC_ACTIVE_INTERVAL
+                    } else {
+                        SYNC_IDLE_INTERVAL
+                    };
+                    tokio::select! {
+                        _ = engine.work_notify.notified() => {}
+                        _ = tokio::time::sleep(interval) => {}
+                    }
                 }
             });
         });
+    }
+
+    /// Pull changes newer than our cursor. Cheap no-op when nothing changed;
+    /// the safety net for anything the realtime socket missed (sleep/wake,
+    /// dropped connections, expired socket auth).
+    async fn pull_incremental_if_due(&self) -> Result<(), String> {
+        let due = self
+            .last_pull
+            .lock()
+            .map(|t: Instant| t.elapsed() >= INCREMENTAL_PULL_INTERVAL)
+            .unwrap_or(true);
+        if !due {
+            return Ok(());
+        }
+
+        let Some(session) = (match ensure_session(self).await {
+            Ok(s) => Some(s),
+            Err(EnsureSessionError::NotConfigured | EnsureSessionError::NotLoggedIn) => None,
+            Err(EnsureSessionError::AuthExpired) => None,
+            Err(EnsureSessionError::Transient(e)) => return Err(e),
+        }) else {
+            return Ok(());
+        };
+
+        *self.last_pull.lock() = Some(Instant::now());
+        self.pull_incremental(&session).await
+    }
+
+    pub async fn pull_incremental(&self, session: &AuthSession) -> Result<(), String> {
+        let client = self.client.as_ref().ok_or("Supabase not configured")?;
+        let Some(cursor) = self
+            .db
+            .get_setting(SETTING_LAST_PULL_CURSOR)
+            .map_err(|e| e.to_string())?
+        else {
+            // No cursor until the first successful bootstrap.
+            return Ok(());
+        };
+
+        let items = client
+            .fetch_items_updated_since(session, &cursor, 500)
+            .await?;
+        if items.is_empty() {
+            return Ok(());
+        }
+
+        let count = items.len();
+        let mut newest_cursor = cursor;
+        let mut changed = false;
+        for item in items {
+            if item.updated_at > newest_cursor {
+                newest_cursor = item.updated_at.clone();
+            }
+            let result = if item.deleted_at.is_some() {
+                self.db
+                    .apply_remote_deletion(&item.id, item.deleted_at.as_deref().unwrap_or(""))
+            } else {
+                self.db.upsert_remote_item(&item)
+            };
+            match result {
+                Ok(()) => changed = true,
+                Err(e) => tracing::warn!("incremental apply {}: {e}", item.id),
+            }
+        }
+
+        self.db
+            .set_setting(SETTING_LAST_PULL_CURSOR, &newest_cursor)
+            .map_err(|e| e.to_string())?;
+
+        if changed {
+            tracing::info!("incremental pull applied {count} remote change(s)");
+            self.db
+                .set_setting("last_sync_at", &chrono::Utc::now().to_rfc3339())
+                .map_err(|e| e.to_string())?;
+            let _ = self.app.emit("items-updated", ());
+        }
+        Ok(())
     }
 
     async fn bootstrap_after_auth(&self, session: &AuthSession) -> Result<(), String> {
@@ -275,6 +447,14 @@ impl SyncEngine {
                 tracing::warn!("pull item_collection {}:{}: {e}", link.item_id, link.collection_id);
             }
         }
+
+        // Start the incremental-pull cursor slightly in the past so the next
+        // pull overlaps the bootstrap window (upserts are idempotent; a small
+        // overlap beats a gap and avoids depending on the local clock).
+        let cursor = (chrono::Utc::now() - chrono::Duration::minutes(5)).to_rfc3339();
+        self.db
+            .set_setting(SETTING_LAST_PULL_CURSOR, &cursor)
+            .map_err(|e| e.to_string())?;
 
         self.db
             .set_setting("last_sync_at", &chrono::Utc::now().to_rfc3339())
@@ -355,6 +535,10 @@ impl SyncEngine {
         // Push order: collections → items → item_collections (cloud FK parents must exist)
         let pending_collections = self.db.list_pending_sync_collections()?;
         for collection in pending_collections {
+            let backoff_key = format!("collection:{}", collection.id);
+            if !self.backoff_due(&backoff_key) {
+                continue;
+            }
             let is_deletion = collection.deleted_at.is_some();
             let result = if is_deletion {
                 client.delete_collection(&session, &collection.id).await
@@ -363,6 +547,7 @@ impl SyncEngine {
             };
             match result {
                 Ok(()) => {
+                    self.backoff_clear(&backoff_key);
                     if let Err(e) = self.db.mark_collection_synced(&collection.id) {
                         tracing::warn!("mark collection synced {}: {e}", collection.id);
                     }
@@ -371,6 +556,7 @@ impl SyncEngine {
                 }
                 Err(e) => {
                     failures += 1;
+                    self.backoff_record_failure(&backoff_key);
                     tracing::warn!("push collection {}: {e}", collection.id);
                 }
             }
@@ -378,9 +564,14 @@ impl SyncEngine {
 
         let pending = self.db.list_pending_sync_items()?;
         for item in pending {
+            let backoff_key = format!("item:{}", item.id);
+            if !self.backoff_due(&backoff_key) {
+                continue;
+            }
             let is_deletion = item.deleted_at.is_some();
             match client.upsert_item(&session, &item).await {
                 Ok(()) => {
+                    self.backoff_clear(&backoff_key);
                     self.db.mark_synced(&item.id)?;
                     self.db.set_setting("last_sync_at", &chrono::Utc::now().to_rfc3339())?;
 
@@ -417,6 +608,7 @@ impl SyncEngine {
                 }
                 Err(e) => {
                     failures += 1;
+                    self.backoff_record_failure(&backoff_key);
                     tracing::warn!("push item {}: {e}", item.id);
                 }
             }
@@ -424,6 +616,10 @@ impl SyncEngine {
 
         let pending_links = self.db.list_pending_sync_item_collections()?;
         for link in pending_links {
+            let backoff_key = format!("link:{}:{}", link.item_id, link.collection_id);
+            if !self.backoff_due(&backoff_key) {
+                continue;
+            }
             match client
                 .upsert_item_collection(
                     &session,
@@ -435,6 +631,7 @@ impl SyncEngine {
                 .await
             {
                 Ok(()) => {
+                    self.backoff_clear(&backoff_key);
                     if let Err(e) = self
                         .db
                         .mark_item_collection_synced(&link.item_id, &link.collection_id)
@@ -458,6 +655,7 @@ impl SyncEngine {
                         );
                     } else {
                         failures += 1;
+                        self.backoff_record_failure(&backoff_key);
                         tracing::warn!(
                             "push item_collection {}:{}: {e}",
                             link.item_id,
@@ -470,11 +668,16 @@ impl SyncEngine {
 
         let pending_link_deletes = self.db.list_pending_item_collection_deletes()?;
         for link in pending_link_deletes {
+            let backoff_key = format!("unlink:{}:{}", link.item_id, link.collection_id);
+            if !self.backoff_due(&backoff_key) {
+                continue;
+            }
             match client
                 .delete_item_collection(&session, &link.item_id, &link.collection_id)
                 .await
             {
                 Ok(()) => {
+                    self.backoff_clear(&backoff_key);
                     if let Err(e) = self
                         .db
                         .mark_item_collection_synced(&link.item_id, &link.collection_id)
@@ -491,6 +694,7 @@ impl SyncEngine {
                 }
                 Err(e) => {
                     failures += 1;
+                    self.backoff_record_failure(&backoff_key);
                     tracing::warn!(
                         "delete item_collection {}:{}: {e}",
                         link.item_id,
@@ -653,6 +857,14 @@ impl SyncEngine {
             }
             Err(e) => tracing::warn!("retention purge: {e}"),
         }
+
+        // Completed queue rows are audit noise once synced — without pruning
+        // the table grows forever.
+        match self.db.prune_synced_queue_rows() {
+            Ok(0) => {}
+            Ok(n) => tracing::debug!("pruned {n} completed sync queue rows"),
+            Err(e) => tracing::warn!("queue prune: {e}"),
+        }
     }
 
     pub fn run_retention_now(&self) -> Result<u32, String> {
@@ -751,7 +963,7 @@ async fn try_refresh_session(
                 .map_err(|e| EnsureSessionError::Transient(e.to_string()))?
                 .unwrap_or_default();
             auth::save_session(engine.db(), &new_session, &email)
-                .map_err(|e| EnsureSessionError::Transient(e.to_string()))?;
+                .map_err(EnsureSessionError::Transient)?;
             Ok(new_session)
         }
         Err(auth::RefreshError::InvalidSession) => {

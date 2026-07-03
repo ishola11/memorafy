@@ -49,41 +49,40 @@ pub fn toggle_clipboard_pause(state: State<'_, AppState>) -> Result<bool, String
 }
 
 #[tauri::command]
-pub fn copy_item(
-    state: State<'_, AppState>,
-    id: String,
-    plain_text: bool,
-) -> Result<(), String> {
+pub fn copy_item(state: State<'_, AppState>, id: String) -> Result<(), String> {
     let item = state.db.get_item(&id).map_err(|e| e.to_string())?;
-    let text = if plain_text {
-        item.plain_text.clone()
-    } else {
-        item.plain_text.clone()
-    };
-    if let Some(t) = text {
-        write_clipboard(&state, &t).map_err(|e| e.to_string())?;
+    if let Some(text) = item.plain_text {
+        write_clipboard(&state, &text).map_err(|e| e.to_string())?;
     }
     Ok(())
 }
 
 #[tauri::command]
 pub fn toggle_pin(state: State<'_, AppState>, id: String) -> Result<(), String> {
-    state.db.toggle_pin(&id).map_err(|e| e.to_string())
+    state.db.toggle_pin(&id).map_err(|e| e.to_string())?;
+    state.sync_engine.request_sync();
+    Ok(())
 }
 
 #[tauri::command]
 pub fn toggle_favorite(state: State<'_, AppState>, id: String) -> Result<(), String> {
-    state.db.toggle_favorite(&id).map_err(|e| e.to_string())
+    state.db.toggle_favorite(&id).map_err(|e| e.to_string())?;
+    state.sync_engine.request_sync();
+    Ok(())
 }
 
 #[tauri::command]
 pub fn delete_item(state: State<'_, AppState>, id: String) -> Result<(), String> {
-    state.db.delete_item(&id).map_err(|e| e.to_string())
+    state.db.delete_item(&id).map_err(|e| e.to_string())?;
+    state.sync_engine.request_sync();
+    Ok(())
 }
 
 #[tauri::command]
 pub fn rename_item(state: State<'_, AppState>, id: String, title: String) -> Result<(), String> {
-    state.db.rename_item(&id, &title).map_err(|e| e.to_string())
+    state.db.rename_item(&id, &title).map_err(|e| e.to_string())?;
+    state.sync_engine.request_sync();
+    Ok(())
 }
 
 #[tauri::command]
@@ -102,6 +101,7 @@ pub fn create_snippet(
         )
         .map_err(|e| e.to_string())?;
     let _ = app.emit("items-updated", ());
+    state.sync_engine.request_sync();
     Ok(item)
 }
 
@@ -121,6 +121,7 @@ pub fn update_snippet(
         )
         .map_err(|e| e.to_string())?;
     let _ = app.emit("items-updated", ());
+    state.sync_engine.request_sync();
     Ok(item)
 }
 
@@ -132,6 +133,7 @@ pub fn save_item_as_snippet(
 ) -> Result<crate::db::ItemRecord, String> {
     let item = state.db.save_item_as_snippet(&id).map_err(|e| e.to_string())?;
     let _ = app.emit("items-updated", ());
+    state.sync_engine.request_sync();
     Ok(item)
 }
 
@@ -151,6 +153,7 @@ pub fn create_collection(
         .create_collection(&input.name, &input.color)
         .map_err(|e| e.to_string())?;
     let _ = app.emit("collections-updated", ());
+    state.sync_engine.request_sync();
     Ok(collection)
 }
 
@@ -169,6 +172,7 @@ pub fn update_collection(
         )
         .map_err(|e| e.to_string())?;
     let _ = app.emit("collections-updated", ());
+    state.sync_engine.request_sync();
     Ok(collection)
 }
 
@@ -176,6 +180,7 @@ pub fn update_collection(
 pub fn delete_collection(app: AppHandle, state: State<'_, AppState>, id: String) -> Result<(), String> {
     state.db.delete_collection(&id).map_err(|e| e.to_string())?;
     let _ = app.emit("collections-updated", ());
+    state.sync_engine.request_sync();
     Ok(())
 }
 
@@ -192,6 +197,7 @@ pub fn add_item_to_collection(
         .map_err(|e| e.to_string())?;
     let _ = app.emit("collections-updated", ());
     let _ = app.emit("items-updated", ());
+    state.sync_engine.request_sync();
     Ok(())
 }
 
@@ -208,6 +214,7 @@ pub fn remove_item_from_collection(
         .map_err(|e| e.to_string())?;
     let _ = app.emit("collections-updated", ());
     let _ = app.emit("items-updated", ());
+    state.sync_engine.request_sync();
     Ok(())
 }
 
@@ -382,6 +389,48 @@ pub fn set_history_retention(
         tracing::info!("retention setting change removed {purged} items");
     }
     get_app_settings(app, state)
+}
+
+/// Open a path or URL with the platform's default handler.
+fn open_external(target: &str) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    let result = std::process::Command::new("open").arg(target).spawn();
+    #[cfg(target_os = "windows")]
+    let result = std::process::Command::new("explorer").arg(target).spawn();
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    let result = std::process::Command::new("xdg-open").arg(target).spawn();
+
+    result
+        .map(|_| ())
+        .map_err(|e| format!("Could not open {target}: {e}"))
+}
+
+#[tauri::command]
+pub fn open_logs_dir() -> Result<(), String> {
+    let dir = crate::logging::log_dir().ok_or("Log directory is unavailable")?;
+    std::fs::create_dir_all(&dir).map_err(|e| format!("Could not create log directory: {e}"))?;
+    open_external(&dir.to_string_lossy())
+}
+
+#[tauri::command]
+pub fn get_diagnostics(
+    state: State<'_, AppState>,
+    include_logs: bool,
+) -> Result<crate::feedback::DiagnosticsDto, String> {
+    crate::feedback::collect_diagnostics(&state, include_logs)
+}
+
+#[tauri::command]
+pub fn submit_feedback(
+    report: crate::feedback::FeedbackReport,
+) -> Result<crate::feedback::FeedbackOutcome, String> {
+    let provider = crate::feedback::default_provider();
+    let outcome = provider.submit(&report)?;
+    tracing::info!(provider = provider.name(), kind = %report.kind, "feedback submitted");
+    match &outcome {
+        crate::feedback::FeedbackOutcome::OpenUrl { url } => open_external(url)?,
+    }
+    Ok(outcome)
 }
 
 #[tauri::command]

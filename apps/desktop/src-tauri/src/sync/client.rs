@@ -63,6 +63,40 @@ pub fn is_foreign_key_violation(err: &str) -> bool {
     err.contains("23503") || err.contains("foreign key")
 }
 
+const NETWORK_ERROR_MESSAGE: &str =
+    "Couldn't reach the sync server. Check your internet connection and try again.";
+
+/// Map raw Supabase auth responses to messages a user can act on. The raw
+/// body is logged by the caller; the UI only ever sees these.
+fn friendly_auth_error(status: reqwest::StatusCode, body: &str) -> String {
+    let detail = serde_json::from_str::<serde_json::Value>(body)
+        .ok()
+        .and_then(|v| {
+            ["error_description", "msg", "message", "error"]
+                .iter()
+                .find_map(|k| v.get(k).and_then(|s| s.as_str()).map(String::from))
+        })
+        .unwrap_or_default();
+
+    if detail.contains("Invalid login credentials") || detail.contains("invalid_grant") {
+        return "Incorrect email or password.".to_string();
+    }
+    if detail.contains("Email not confirmed") {
+        return "Please confirm your email address, then sign in again.".to_string();
+    }
+    if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+        return "Too many attempts. Please wait a minute and try again.".to_string();
+    }
+    if status.is_server_error() {
+        return NETWORK_ERROR_MESSAGE.to_string();
+    }
+    if detail.is_empty() {
+        format!("Sign-in failed ({status}). Please try again.")
+    } else {
+        format!("Sign-in failed: {detail}")
+    }
+}
+
 pub struct SupabaseClient {
     http: reqwest::Client,
     config: SyncConfig,
@@ -91,11 +125,13 @@ impl SupabaseClient {
             .json(&body)
             .send()
             .await
-            .map_err(|e| e.to_string())?;
+            .map_err(|_| NETWORK_ERROR_MESSAGE.to_string())?;
 
-        if !resp.status().is_success() {
+        let status = resp.status();
+        if !status.is_success() {
             let text = resp.text().await.unwrap_or_default();
-            return Err(format!("Login failed: {text}"));
+            tracing::warn!("login failed ({status}): {text}");
+            return Err(friendly_auth_error(status, &text));
         }
 
         let value: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
@@ -115,8 +151,20 @@ impl SupabaseClient {
             .await
             .map_err(|e| RefreshError::Network(e.to_string()))?;
 
-        if !resp.status().is_success() {
-            return Err(RefreshError::InvalidSession);
+        let status = resp.status();
+        if !status.is_success() {
+            let text = resp.text().await.unwrap_or_default();
+            // Only a definitive rejection invalidates the stored session.
+            // Server errors and rate limits are transient — signing the user
+            // out on a 503 would silently break sync until manual re-login.
+            if status.is_client_error() && status != reqwest::StatusCode::TOO_MANY_REQUESTS {
+                tracing::warn!("session refresh rejected ({status}): {text}");
+                return Err(RefreshError::InvalidSession);
+            }
+            tracing::debug!("session refresh transient failure ({status}): {text}");
+            return Err(RefreshError::Network(format!(
+                "Sync server unavailable ({status})"
+            )));
         }
 
         let value: serde_json::Value = resp
@@ -132,7 +180,7 @@ impl SupabaseClient {
         let resp = self
             .http
             .post(url)
-            .headers(auth_headers(&self.config, session))
+            .headers(auth_headers(&self.config, session)?)
             .header("Prefer", "resolution=merge-duplicates")
             .json(&cloud)
             .send()
@@ -158,7 +206,7 @@ impl SupabaseClient {
         let resp = self
             .http
             .get(url)
-            .headers(auth_headers(&self.config, session))
+            .headers(auth_headers(&self.config, session)?)
             .send()
             .await
             .map_err(|e| e.to_string())?;
@@ -166,6 +214,36 @@ impl SupabaseClient {
         if !resp.status().is_success() {
             let text = resp.text().await.unwrap_or_default();
             return Err(format!("Fetch items failed: {text}"));
+        }
+
+        resp.json().await.map_err(|e| e.to_string())
+    }
+
+    /// Items changed since `cursor` (RFC 3339), oldest first, **including
+    /// soft-deleted rows** so deletions propagate. Backbone of incremental
+    /// pull — recovers anything missed while the realtime socket was down.
+    pub async fn fetch_items_updated_since(
+        &self,
+        session: &AuthSession,
+        cursor: &str,
+        limit: i64,
+    ) -> Result<Vec<CloudItem>, String> {
+        let url = format!(
+            "{}/items?updated_at=gt.{}&order=updated_at.asc&limit={limit}",
+            self.config.rest_url(),
+            urlencoding::encode(cursor)
+        );
+        let resp = self
+            .http
+            .get(url)
+            .headers(auth_headers(&self.config, session)?)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+
+        if !resp.status().is_success() {
+            let text = resp.text().await.unwrap_or_default();
+            return Err(format!("Incremental fetch failed: {text}"));
         }
 
         resp.json().await.map_err(|e| e.to_string())
@@ -182,7 +260,7 @@ impl SupabaseClient {
         let resp = self
             .http
             .post(url)
-            .headers(auth_headers(&self.config, session))
+            .headers(auth_headers(&self.config, session)?)
             .json(&serde_json::json!({
                 "device_id": device_id,
                 "device_name": name,
@@ -214,7 +292,7 @@ impl SupabaseClient {
         let resp = self
             .http
             .post(url)
-            .headers(auth_headers(&self.config, session))
+            .headers(auth_headers(&self.config, session)?)
             .json(&serde_json::json!({ "device_id": device_id }))
             .send()
             .await
@@ -232,7 +310,7 @@ impl SupabaseClient {
         let resp = self
             .http
             .get(url)
-            .headers(auth_headers(&self.config, session))
+            .headers(auth_headers(&self.config, session)?)
             .send()
             .await
             .map_err(|e| e.to_string())?;
@@ -263,7 +341,7 @@ impl SupabaseClient {
         let resp = self
             .http
             .post(url)
-            .headers(auth_headers(&self.config, session))
+            .headers(auth_headers(&self.config, session)?)
             .header("Prefer", "resolution=merge-duplicates")
             .json(&cloud)
             .send()
@@ -282,7 +360,7 @@ impl SupabaseClient {
         let resp = self
             .http
             .delete(url)
-            .headers(auth_headers(&self.config, session))
+            .headers(auth_headers(&self.config, session)?)
             .send()
             .await
             .map_err(|e| e.to_string())?;
@@ -302,7 +380,7 @@ impl SupabaseClient {
         let resp = self
             .http
             .get(url)
-            .headers(auth_headers(&self.config, session))
+            .headers(auth_headers(&self.config, session)?)
             .send()
             .await
             .map_err(|e| e.to_string())?;
@@ -324,7 +402,7 @@ impl SupabaseClient {
         let resp = self
             .http
             .post(url)
-            .headers(auth_headers(&self.config, session))
+            .headers(auth_headers(&self.config, session)?)
             .header("Prefer", "resolution=merge-duplicates")
             .json(link)
             .send()
@@ -353,7 +431,7 @@ impl SupabaseClient {
         let resp = self
             .http
             .delete(url)
-            .headers(auth_headers(&self.config, session))
+            .headers(auth_headers(&self.config, session)?)
             .send()
             .await
             .map_err(|e| e.to_string())?;
@@ -373,7 +451,7 @@ impl SupabaseClient {
         let resp = self
             .http
             .get(url)
-            .headers(auth_headers(&self.config, session))
+            .headers(auth_headers(&self.config, session)?)
             .send()
             .await
             .map_err(|e| e.to_string())?;
@@ -387,15 +465,23 @@ impl SupabaseClient {
     }
 }
 
-fn auth_headers(config: &SyncConfig, session: &AuthSession) -> HeaderMap {
+/// Builds authenticated request headers. Fails (instead of panicking) if the
+/// configured anon key or token contains characters invalid in a header —
+/// e.g. a newline from a badly pasted secret.
+fn auth_headers(config: &SyncConfig, session: &AuthSession) -> Result<HeaderMap, String> {
     let mut headers = HeaderMap::new();
-    headers.insert("apikey", HeaderValue::from_str(&config.anon_key).unwrap());
+    headers.insert(
+        "apikey",
+        HeaderValue::from_str(&config.anon_key)
+            .map_err(|_| "Sync is misconfigured: the Supabase anon key is invalid".to_string())?,
+    );
     headers.insert(
         AUTHORIZATION,
-        HeaderValue::from_str(&format!("Bearer {}", session.access_token)).unwrap(),
+        HeaderValue::from_str(&format!("Bearer {}", session.access_token))
+            .map_err(|_| "Session token is invalid — please sign in again".to_string())?,
     );
     headers.insert("Content-Type", HeaderValue::from_static("application/json"));
-    headers
+    Ok(headers)
 }
 
 fn item_to_cloud(session: &AuthSession, item: &ItemRecord) -> CloudItem {

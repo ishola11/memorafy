@@ -402,13 +402,10 @@ impl SupabaseClient {
         dek: Option<&crate::crypto::Key>,
     ) -> Result<(), String> {
         let raw = std::fs::read(local_path).map_err(|e| format!("read image blob: {e}"))?;
-        let (body, content_type) = if let Some(key) = dek {
-            (
-                crate::crypto::encrypt_blob(key, &raw).into_bytes(),
-                "application/octet-stream",
-            )
+        let body = if let Some(key) = dek {
+            crate::crypto::encrypt_blob(key, &raw).into_bytes()
         } else {
-            (raw, "image/png")
+            raw
         };
         let key = blob_storage_key(&session.user_id, item_id);
         let url = format!(
@@ -419,9 +416,9 @@ impl SupabaseClient {
         let resp = self
             .http
             .post(&url)
-            .headers(auth_headers(&self.config, session)?)
+            .headers(base_auth_headers(&self.config, session)?)
             .header("x-upsert", "true")
-            .header("Content-Type", content_type)
+            .header("Content-Type", "image/png")
             .body(body)
             .send()
             .await
@@ -449,7 +446,7 @@ impl SupabaseClient {
         let resp = self
             .http
             .get(&url)
-            .headers(auth_headers(&self.config, session)?)
+            .headers(base_auth_headers(&self.config, session)?)
             .send()
             .await
             .map_err(|e| e.to_string())?;
@@ -462,10 +459,14 @@ impl SupabaseClient {
         }
         let bytes = resp.bytes().await.map_err(|e| e.to_string())?;
         let png = if let Some(key) = dek {
-            let encoded = String::from_utf8(bytes.to_vec())
-                .map_err(|_| "encrypted blob is not valid UTF-8".to_string())?;
-            crate::crypto::decrypt_blob(key, &encoded)
-                .map_err(|e| format!("decrypt image blob: {e}"))?
+            if bytes.starts_with(b"mem1:") {
+                let encoded = std::str::from_utf8(&bytes)
+                    .map_err(|_| "encrypted blob is not valid UTF-8".to_string())?;
+                crate::crypto::decrypt_blob(key, encoded)
+                    .map_err(|e| format!("decrypt image blob: {e}"))?
+            } else {
+                bytes.to_vec()
+            }
         } else {
             bytes.to_vec()
         };
@@ -822,7 +823,8 @@ pub fn blob_storage_key(user_id: &str, item_id: &str) -> String {
 /// Builds authenticated request headers. Fails (instead of panicking) if the
 /// configured anon key or token contains characters invalid in a header —
 /// e.g. a newline from a badly pasted secret.
-fn auth_headers(config: &SyncConfig, session: &AuthSession) -> Result<HeaderMap, String> {
+/// apikey + Bearer token only (for Storage uploads/downloads).
+fn base_auth_headers(config: &SyncConfig, session: &AuthSession) -> Result<HeaderMap, String> {
     let mut headers = HeaderMap::new();
     headers.insert(
         "apikey",
@@ -834,6 +836,12 @@ fn auth_headers(config: &SyncConfig, session: &AuthSession) -> Result<HeaderMap,
         HeaderValue::from_str(&format!("Bearer {}", session.access_token))
             .map_err(|_| "Session token is invalid. Please sign in again.".to_string())?,
     );
+    Ok(headers)
+}
+
+/// REST/RPC requests that send JSON bodies.
+fn auth_headers(config: &SyncConfig, session: &AuthSession) -> Result<HeaderMap, String> {
+    let mut headers = base_auth_headers(config, session)?;
     headers.insert("Content-Type", HeaderValue::from_static("application/json"));
     Ok(headers)
 }

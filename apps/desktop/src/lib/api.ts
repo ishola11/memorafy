@@ -41,8 +41,8 @@ export async function toggleClipboardPause(): Promise<boolean> {
   return invoke<boolean>("toggle_clipboard_pause");
 }
 
-export async function copyItem(id: string): Promise<void> {
-  return invoke("copy_item", { id });
+export async function copyItem(id: string, plainText = false): Promise<void> {
+  return invoke("copy_item", { id, plainText });
 }
 
 export async function togglePin(id: string): Promise<void> {

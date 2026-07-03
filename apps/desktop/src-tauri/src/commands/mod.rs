@@ -1,7 +1,7 @@
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_autostart::ManagerExt;
 
-use crate::clipboard::write_clipboard;
+use crate::clipboard::{write_clipboard, write_clipboard_rich};
 use crate::db::{item_to_preview, PreviewCardDto, SearchFiltersDto, TabFiltersDto, TimelineSectionDto};
 use crate::AppState;
 
@@ -48,13 +48,111 @@ pub fn toggle_clipboard_pause(state: State<'_, AppState>) -> Result<bool, String
     Ok(paused)
 }
 
+/// `plain_text = true` guarantees the literal characters with no formatting
+/// — useful when a rich hyperlink/object would be unwanted (pasting into a
+/// filename, terminal, or code editor). `plain_text = false` enriches the
+/// paste where formatting carries real information (currently: a clickable
+/// link for copied URLs); for content types with nothing to enrich, both
+/// options produce the same plain-text result.
 #[tauri::command]
-pub fn copy_item(state: State<'_, AppState>, id: String) -> Result<(), String> {
+pub fn copy_item(state: State<'_, AppState>, id: String, plain_text: bool) -> Result<(), String> {
     let item = state.db.get_item(&id).map_err(|e| e.to_string())?;
-    if let Some(text) = item.plain_text {
-        write_clipboard(&state, &text).map_err(|e| e.to_string())?;
+    let Some(text) = item.plain_text.clone() else {
+        return Ok(());
+    };
+
+    if !plain_text {
+        if let Some(html) = rich_html_for_item(&item) {
+            return write_clipboard_rich(&state, &text, &html).map_err(|e| e.to_string());
+        }
     }
-    Ok(())
+
+    write_clipboard(&state, &text).map_err(|e| e.to_string())
+}
+
+/// Builds a rich-paste representation for content types where formatting is
+/// meaningful. Returns `None` when plain text is already the richest useful
+/// representation (text, code, snippets — Memora doesn't capture original
+/// HTML/RTF for these, so there is nothing genuine to enrich).
+fn rich_html_for_item(item: &crate::db::ItemRecord) -> Option<String> {
+    if item.content_type != "url" {
+        return None;
+    }
+    let url = item.url.as_deref()?;
+    let label = item
+        .url_title
+        .as_deref()
+        .or(item.url_domain.as_deref())
+        .unwrap_or(url);
+    Some(format!(
+        r#"<a href="{}">{}</a>"#,
+        html_escape_attr(url),
+        html_escape_text(label)
+    ))
+}
+
+/// The href value lands in other applications' clipboard/paste handling, so
+/// it must not break out of the attribute even though it's our own data.
+fn html_escape_attr(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('"', "&quot;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+}
+
+fn html_escape_text(s: &str) -> String {
+    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
+}
+
+#[cfg(test)]
+mod copy_item_tests {
+    use super::rich_html_for_item;
+    use crate::db::ItemRecord;
+
+    fn base_item() -> ItemRecord {
+        ItemRecord {
+            id: "1".into(),
+            kind: "history".into(),
+            content_type: "url".into(),
+            display_title: None,
+            preview_text: None,
+            char_count: None,
+            url: Some("https://example.com/a?b=1&c=2".into()),
+            url_title: None,
+            url_domain: Some("example.com".into()),
+            code_language: None,
+            line_count: None,
+            blob_path: None,
+            blob_size: None,
+            thumbnail_path: None,
+            content_hash: "hash".into(),
+            plain_text: Some("https://example.com/a?b=1&c=2".into()),
+            trigger: None,
+            source_device_id: None,
+            source_device_name: None,
+            is_pinned: false,
+            is_favorited: false,
+            sync_status: "synced".into(),
+            created_at: "2026-01-01T00:00:00Z".into(),
+            updated_at: "2026-01-01T00:00:00Z".into(),
+            deleted_at: None,
+        }
+    }
+
+    #[test]
+    fn url_items_get_an_escaped_html_link() {
+        let item = base_item();
+        let html = rich_html_for_item(&item).expect("url should produce html");
+        assert!(html.contains(r#"href="https://example.com/a?b=1&amp;c=2""#));
+        assert!(html.contains(">example.com<"));
+    }
+
+    #[test]
+    fn non_url_items_have_no_rich_representation() {
+        let mut item = base_item();
+        item.content_type = "text".into();
+        assert!(rich_html_for_item(&item).is_none());
+    }
 }
 
 #[tauri::command]

@@ -171,8 +171,31 @@ fn persist_image(
 }
 
 pub fn write_clipboard(state: &AppState, text: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let (content_type, _) = classify(text);
-    let hash = hash_content(content_type, Some(text), None);
+    write_clipboard_internal(state, text, None)
+}
+
+/// Writes an HTML representation with a guaranteed plain-text fallback, so
+/// apps that only read plain text (terminals, code editors) still get the
+/// literal characters while rich targets (email, chat, docs) render the
+/// formatting — e.g. a clickable link for a copied URL.
+pub fn write_clipboard_rich(
+    state: &AppState,
+    plain_text: &str,
+    html: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    write_clipboard_internal(state, plain_text, Some(html))
+}
+
+/// The watcher only ever reads back plain text via `get_text()`, so echo
+/// suppression is keyed off the plain-text hash regardless of whether we
+/// also wrote an HTML variant — that's exactly what the watcher would see.
+fn write_clipboard_internal(
+    state: &AppState,
+    plain_text: &str,
+    html: Option<&str>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let (content_type, _) = classify(plain_text);
+    let hash = hash_content(content_type, Some(plain_text), None);
     {
         let mut suppress = state.suppress_clipboard.lock();
         *suppress = SUPPRESS_ITERATIONS;
@@ -180,7 +203,10 @@ pub fn write_clipboard(state: &AppState, text: &str) -> Result<(), Box<dyn std::
         *state.last_capture.lock() = Some((hash, Instant::now()));
     }
     let mut clipboard = Clipboard::new()?;
-    clipboard.set_text(text.to_string())?;
+    match html {
+        Some(html) => clipboard.set_html(html, Some(plain_text))?,
+        None => clipboard.set_text(plain_text.to_string())?,
+    }
     Ok(())
 }
 

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   Clipboard,
+  ClipboardCopy,
   Code2,
   FolderPlus,
   Globe,
@@ -30,6 +31,7 @@ const kindIcons = {
 
 type BusyAction =
   | "copy"
+  | "copyPlain"
   | "pin"
   | "favorite"
   | "delete"
@@ -43,6 +45,7 @@ interface PreviewCardProps {
   selected?: boolean;
   onSelect?: () => void;
   onCopy?: () => void | Promise<void>;
+  onCopyPlain?: () => void | Promise<void>;
   onPin?: () => void | Promise<void>;
   onFavorite?: () => void | Promise<void>;
   onDelete?: () => void | Promise<void>;
@@ -115,6 +118,7 @@ export function PreviewCard({
   selected = false,
   onSelect,
   onCopy,
+  onCopyPlain,
   onPin,
   onFavorite,
   onDelete,
@@ -156,6 +160,7 @@ export function PreviewCard({
   const showCollections = collections.length > 0 && (onAddToCollection || onRemoveFromCollection);
   const hasActions = Boolean(
     onCopy ||
+      onCopyPlain ||
       onPin ||
       onFavorite ||
       onDelete ||
@@ -260,6 +265,16 @@ export function PreviewCard({
                 onClick={() => void runAction(onCopy, setBusyAction, "copy")}
               >
                 <Clipboard className="h-3.5 w-3.5" />
+              </ActionButton>
+            )}
+            {onCopyPlain && (
+              <ActionButton
+                label="Copy as plain text"
+                disabled={isBusy}
+                busy={busyAction === "copyPlain"}
+                onClick={() => void runAction(onCopyPlain, setBusyAction, "copyPlain")}
+              >
+                <ClipboardCopy className="h-3.5 w-3.5" />
               </ActionButton>
             )}
             {onPin && (

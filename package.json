@@ -1,7 +1,8 @@
 {
   "name": "memora",
-  "version": "0.1.9",
+  "version": "0.2.0",
   "private": true,
+  "license": "MIT",
   "description": "Your personal cross-device memory",
   "scripts": {
     "dev": "npm run dev --workspace=@memora/desktop",

@@ -114,6 +114,14 @@
 - [x] Verified live: locked-state detection on startup ("no cached encryption key — sync decryption locked until next sign-in") + 7 new crypto unit tests (roundtrip, tamper rejection, wrong-password unwrap failure, KDF determinism)
 - Known limitations: collection *names* and structural metadata (timestamps, pinned flags, char counts) are not encrypted; macOS concealed-clipboard detection still pending
 
+## Phase 5: Open-Source Release Package — Wave 4 (2026-07-03)
+
+- [x] **MIT license** — LICENSE file + license metadata in all manifests
+- [x] **Public README** — full rewrite for end users and contributors: features, install, E2E explanation, self-hosting walkthrough, dev setup, release process, FAQ/troubleshooting, fork notes (updater endpoint + signing keys)
+- [x] **Community files** — CONTRIBUTING.md (incl. schema-change workflow and encryption rules for new synced fields), SECURITY.md (private reporting + honest threat model and limitations), CODE_OF_CONDUCT.md (Contributor Covenant 2.1), CHANGELOG.md (Keep-a-Changelog)
+- [x] **PR CI** — .github/workflows/ci.yml runs tsc, production frontend build, and cargo test on windows-latest for every PR/push (release.yml remains tag-only)
+- [x] **v0.2.0** — version unified across all four manifests for the first public release
+
 ## Next Up
 
 1. Run `003_collections_realtime.sql` in Supabase if project predates this update

@@ -1,0 +1,46 @@
+# PR/branch CI: compile + test both sides of the app.
+# (Release builds are a separate tag-triggered workflow: release.yml.)
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    # Windows: matches the primary dev platform and lets the Win32
+    # clipboard integration tests (concealed-content detection) run.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: TypeScript type-check
+        working-directory: apps/desktop
+        run: npx tsc --noEmit
+
+      - name: Frontend production build
+        working-directory: apps/desktop
+        run: npm run build
+
+      - name: Rust tests
+        working-directory: apps/desktop/src-tauri
+        run: cargo test

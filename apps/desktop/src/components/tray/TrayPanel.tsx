@@ -43,7 +43,7 @@ function SyncBadge({ syncState }: { syncState: SyncState | null }) {
     return (
       <span
         className="flex items-center gap-1 rounded-full bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-400"
-        title="Encryption key unavailable — unlock in Settings → Account to resume sync"
+        title="Encryption key unavailable. Unlock in Settings → Account to resume sync."
       >
         <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
         Sync locked
@@ -55,7 +55,7 @@ function SyncBadge({ syncState }: { syncState: SyncState | null }) {
     return (
       <span
         className="flex items-center gap-1 rounded-full bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-400"
-        title="Changes waiting to upload — they'll sync automatically"
+        title="Changes waiting to upload. They'll sync automatically."
       >
         <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
         {syncState.pendingCount} pending
@@ -179,7 +179,7 @@ export function TrayPanel() {
         : "Select a collection above, or add clips via the folder icon on any card.";
 
   const snippetsEmptyMessage =
-    "Save reusable text — signatures, templates, and boilerplate. Click New snippet to create your first one.";
+    "Save reusable text: signatures, templates, and boilerplate. Click New snippet to create your first one.";
 
   return (
     <div

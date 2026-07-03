@@ -88,13 +88,13 @@ export function OnboardingFlow({ onDone }: { onDone: () => void }) {
             </div>
             <div className="space-y-2.5">
               <FeatureRow icon={ClipboardList} title="Clipboard history">
-                Everything you copy — text, links, code, images — is saved locally and
+                Everything you copy (text, links, code, images) is saved locally and
                 searchable instantly.
               </FeatureRow>
               <FeatureRow icon={Keyboard} title="Quick Paste">
                 Press <span className="font-medium text-zinc-800 dark:text-zinc-200">{QUICK_PASTE_SHORTCUT}</span>{" "}
                 anywhere to search your history and paste. Memora lives in your{" "}
-                {IS_MAC ? "menu bar" : "system tray"} — it has no main window.
+                {IS_MAC ? "menu bar" : "system tray"}. It has no main window.
               </FeatureRow>
               <FeatureRow icon={Cloud} title="Cross-device sync (optional)">
                 Sign in to sync clips between your computers in real time. Works fully
@@ -131,7 +131,7 @@ export function OnboardingFlow({ onDone }: { onDone: () => void }) {
               </FeatureRow>
               <FeatureRow icon={Cloud} title="End-to-end encrypted sync">
                 If you enable sync, clips are encrypted on your device with a key derived
-                from your password — the server can't read them. One caveat: resetting a
+                from your password. The server can't read them. One caveat: resetting a
                 forgotten password makes previously synced clips unreadable.
               </FeatureRow>
             </div>
@@ -162,7 +162,7 @@ export function OnboardingFlow({ onDone }: { onDone: () => void }) {
               </div>
               <h1 className="mt-4 text-xl font-semibold tracking-tight">Sync across devices?</h1>
               <p className="mt-1.5 text-sm text-muted">
-                Create an account or sign in — or skip and use Memora locally. You can enable
+                Create an account or sign in, or skip and use Memora locally. You can enable
                 sync later in Settings.
               </p>
             </div>
@@ -182,14 +182,14 @@ export function OnboardingFlow({ onDone }: { onDone: () => void }) {
                     onClick={finish}
                     className="text-xs text-muted underline-offset-2 hover:underline"
                   >
-                    Skip for now — use locally
+                    Skip for now (use locally)
                   </button>
                 </div>
               </>
             ) : (
               <>
                 <p className="rounded-xl border border-border/60 bg-surface-elevated/40 p-4 text-center text-sm text-muted">
-                  Cloud sync isn't set up in this build — Memora works fully offline. You can
+                  Cloud sync isn't set up in this build. Memora works fully offline. You can
                   configure sync later; see the README for self-hosting instructions.
                 </p>
                 <button

@@ -137,6 +137,10 @@ impl Database {
 
     /// New local device identity (e.g. after switching cloud accounts on this machine).
     pub fn rotate_local_device(&self) -> Result<String, rusqlite::Error> {
+        let old_id: Option<String> = self
+            .get_setting(super::models::SETTING_LOCAL_DEVICE_ID)?
+            .filter(|id| !id.is_empty());
+
         let id = Uuid::new_v4().to_string();
         let name = hostname::get()
             .ok()
@@ -155,6 +159,12 @@ impl Database {
             "INSERT INTO devices (id, name, platform, last_seen_at, is_current, created_at) VALUES (?1, ?2, ?3, ?4, 1, ?5)",
             params![id, name, platform, now, now],
         )?;
+        if let Some(ref old) = old_id {
+            conn.execute(
+                "UPDATE items SET source_device_id = ?1 WHERE source_device_id = ?2",
+                params![id, old],
+            )?;
+        }
         drop(conn);
 
         self.set_setting(super::models::SETTING_LOCAL_DEVICE_ID, &id)?;
@@ -1509,6 +1519,20 @@ impl Database {
             ],
         )?;
         Ok(())
+    }
+
+    /// Point items at the current device when their `source_device_id` no
+    /// longer matches any local device row (e.g. after a partial rotation).
+    pub fn reattribute_orphan_items(&self, current_device_id: &str) -> Result<u32, rusqlite::Error> {
+        let conn = self.conn.lock();
+        let n = conn.execute(
+            "UPDATE items SET source_device_id = ?1
+             WHERE source_device_id IS NOT NULL
+               AND source_device_id != ?1
+               AND source_device_id NOT IN (SELECT id FROM devices)",
+            params![current_device_id],
+        )?;
+        Ok(n as u32)
     }
 
     /// Remove local device rows that no longer exist in the cloud (e.g.

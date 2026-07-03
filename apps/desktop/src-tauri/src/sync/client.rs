@@ -342,13 +342,37 @@ impl SupabaseClient {
         item: &ItemRecord,
         dek: Option<&crate::crypto::Key>,
     ) -> Result<(), String> {
-        let cloud = item_to_cloud(session, item, dek);
-        let url = format!("{}/items", self.config.rest_url());
+        let mut cloud = item_to_cloud(session, item, dek);
+        cloud.user_id = session.user_id.clone();
+
+        let rpc_url = format!("{}/rpc/upsert_item", self.config.rest_url());
+        let rpc_resp = self
+            .http
+            .post(&rpc_url)
+            .headers(auth_headers(&self.config, session)?)
+            .json(&cloud)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+
+        if rpc_resp.status().is_success() {
+            return Ok(());
+        }
+
+        let rpc_err = rpc_resp.text().await.unwrap_or_default();
+        if rpc_err.contains("42883") || rpc_err.contains("does not exist") {
+            tracing::debug!("upsert_item RPC missing, falling back to REST: {rpc_err}");
+        } else if !rpc_err.is_empty() {
+            return Err(format!("Push failed: {rpc_err}"));
+        }
+
+        cloud.user_id = session.user_id.clone();
+        let url = format!("{}/items?on_conflict=id", self.config.rest_url());
         let resp = self
             .http
             .post(url)
             .headers(auth_headers(&self.config, session)?)
-            .header("Prefer", "resolution=merge-duplicates")
+            .header("Prefer", "resolution=merge-duplicates,return=minimal")
             .json(&cloud)
             .send()
             .await
@@ -705,7 +729,7 @@ fn auth_headers(config: &SyncConfig, session: &AuthSession) -> Result<HeaderMap,
     headers.insert(
         AUTHORIZATION,
         HeaderValue::from_str(&format!("Bearer {}", session.access_token))
-            .map_err(|_| "Session token is invalid — please sign in again".to_string())?,
+            .map_err(|_| "Session token is invalid. Please sign in again.".to_string())?,
     );
     headers.insert("Content-Type", HeaderValue::from_static("application/json"));
     Ok(headers)

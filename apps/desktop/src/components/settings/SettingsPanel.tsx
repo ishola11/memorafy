@@ -330,9 +330,9 @@ export function SettingsPanel() {
                     {repairing ? "Repairing…" : "Repair sync"}
                   </button>
                   <p className="text-xs leading-relaxed text-muted">
-                    Use Repair sync if sign-in, device registration, or uploads fail. It resets
-                    this device in the cloud, clears stuck queue entries, re-downloads your data,
-                    and retries uploads.
+                    Use Repair sync if sign-in, device registration, or uploads fail. It clears
+                    stuck queue entries, re-downloads your data, and retries uploads. Your
+                    device id is kept unless it is linked to another account.
                   </p>
                   {syncMessage && (
                     <p
@@ -591,7 +591,7 @@ function EraseAllDataCard() {
       <div>
         <h3 className="text-sm font-semibold text-red-600 dark:text-red-400">Danger zone</h3>
         <p className="mt-1 text-xs leading-relaxed text-muted">
-          Erase all local data — clipboard history, snippets, settings, and sign-in — and
+          Erase all local data (clipboard history, snippets, settings, and sign-in) and
           restart Memora as a fresh install. Cloud data is not touched (use History → Clear →
           Everywhere for that). This also prepares the app for a clean uninstall.
         </p>

@@ -19,7 +19,7 @@ import { useAppStore } from "@/stores/app-store";
 import type { AppTab, PreviewCard as PreviewCardType } from "@memora/shared-types";
 
 const SNIPPETS_EMPTY_MESSAGE =
-  "Save reusable text — signatures, templates, and boilerplate. Click New snippet to create your first one.";
+  "Save reusable text: signatures, templates, and boilerplate. Click New snippet to create your first one.";
 
 const SNIPPET_KINDS = new Set(["text", "url", "code"]);
 

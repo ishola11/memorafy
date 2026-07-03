@@ -19,6 +19,7 @@ use tokio::sync::Notify;
 use crate::clipboard::write_clipboard;
 use crate::db::{
     Database, SETTING_LAST_AUTH_USER_ID, SETTING_LOCAL_DEVICE_ID, SETTING_LOCAL_DEVICE_NAME,
+    SETTING_SYNC_DEK_CACHE,
 };
 use crate::AppState;
 
@@ -152,9 +153,12 @@ impl SyncEngine {
 
     fn set_dek(&self, user_id: &str, dek: crate::crypto::Key) {
         *self.dek.lock() = Some(dek);
-        if let Err(e) = crate::keychain::store_dek(&crate::crypto::encode_cached_dek(user_id, &dek)) {
-            // Non-fatal: the key still works this session; the next sign-in
-            // re-unwraps it from the server copy.
+        let encoded = crate::crypto::encode_cached_dek(user_id, &dek);
+        if crate::keychain::prefer_local_storage() {
+            if let Err(e) = self.db.set_setting(SETTING_SYNC_DEK_CACHE, &encoded) {
+                tracing::warn!("could not cache encryption key locally: {e}");
+            }
+        } else if let Err(e) = crate::keychain::store_dek(&encoded) {
             tracing::warn!("could not cache encryption key in keychain: {e}");
         }
         self.maybe_start_encryption_backfill();
@@ -162,30 +166,47 @@ impl SyncEngine {
 
     fn clear_dek(&self) {
         *self.dek.lock() = None;
-        if let Err(e) = crate::keychain::clear_dek() {
-            tracing::debug!("keychain DEK clear: {e}");
+        let _ = self.db.delete_setting(SETTING_SYNC_DEK_CACHE);
+        if !crate::keychain::prefer_local_storage() {
+            if let Err(e) = crate::keychain::clear_dek() {
+                tracing::debug!("keychain DEK clear: {e}");
+            }
         }
     }
 
-    /// Restore the cached key at startup (no password available then).
-    fn load_dek_from_keychain(&self) {
+    /// Restore the cached key after sign-in (not at cold startup — avoids
+    /// macOS keychain prompts before the user has interacted with the app).
+    fn load_dek_from_cache(&self) {
         let user_id = match self.db.get_setting(SETTING_LAST_AUTH_USER_ID) {
             Ok(Some(id)) => id,
             _ => return,
         };
-        match crate::keychain::load_dek() {
-            Ok(Some(cached)) => {
+        let cached = if crate::keychain::prefer_local_storage() {
+            self.db
+                .get_setting(SETTING_SYNC_DEK_CACHE)
+                .ok()
+                .flatten()
+        } else {
+            match crate::keychain::load_dek() {
+                Ok(v) => v,
+                Err(e) => {
+                    tracing::warn!("could not read cached encryption key: {e}");
+                    return;
+                }
+            }
+        };
+        match cached {
+            Some(cached) if !cached.is_empty() => {
                 if let Some(dek) = crate::crypto::decode_cached_dek(&user_id, &cached) {
                     *self.dek.lock() = Some(dek);
                     self.maybe_start_encryption_backfill();
                 } else {
-                    tracing::warn!("cached encryption key belongs to a different account — ignoring");
+                    tracing::warn!("cached encryption key belongs to a different account; ignoring");
                 }
             }
-            Ok(None) => tracing::info!(
-                "no cached encryption key — sync decryption locked until next sign-in"
+            _ => tracing::info!(
+                "no cached encryption key; unlock in Account settings or sign in again"
             ),
-            Err(e) => tracing::warn!("could not read cached encryption key: {e}"),
         }
     }
 
@@ -210,10 +231,18 @@ impl SyncEngine {
                     // The server copy was wrapped under a different password
                     // (reset elsewhere). A device that still holds the key
                     // can heal the account by re-wrapping under the new one.
-                    let cached = crate::keychain::load_dek()
-                        .ok()
-                        .flatten()
-                        .and_then(|c| crate::crypto::decode_cached_dek(&session.user_id, &c));
+                    let cached = if crate::keychain::prefer_local_storage() {
+                        self.db
+                            .get_setting(SETTING_SYNC_DEK_CACHE)
+                            .ok()
+                            .flatten()
+                            .and_then(|c| crate::crypto::decode_cached_dek(&session.user_id, &c))
+                    } else {
+                        crate::keychain::load_dek()
+                            .ok()
+                            .flatten()
+                            .and_then(|c| crate::crypto::decode_cached_dek(&session.user_id, &c))
+                    };
                     match cached {
                         Some(dek) => {
                             let rewrapped = crate::crypto::wrap_dek(&kek, &dek);
@@ -252,7 +281,7 @@ impl SyncEngine {
         if self.dek().is_none() {
             return Err(
                 "That password doesn't match the encryption key. If you reset your password \
-                 recently, sign in on a device that still has Memora unlocked — or use \
+                 recently, sign in on a device that still has Memora unlocked, or use \
                  \"Reset sync encryption\" to start a new key."
                     .into(),
             );
@@ -504,7 +533,7 @@ impl SyncEngine {
         let rewrapped = self.rewrap_key_for_new_password(&session, new_password)?;
         if rewrapped.is_none() && self.dek().is_none() {
             return Err(
-                "Sync encryption is locked on this device — unlock it in Account settings \
+                "Sync encryption is locked on this device. Unlock it in Account settings \
                  before changing your password, or old synced clips would become unreadable."
                     .into(),
             );
@@ -596,12 +625,9 @@ impl SyncEngine {
             };
             rt.block_on(async {
                 if engine.is_configured() {
-                    engine.load_dek_from_keychain();
-                    // Refresh the stored session before bootstrapping — after
-                    // the app has been closed for over an hour the saved JWT
-                    // is expired and device registration would fail.
                     match ensure_session(&engine).await {
                         Ok(session) => {
+                            engine.load_dek_from_cache();
                             if let Err(e) = engine.bootstrap_after_auth(&session).await {
                                 tracing::warn!("sync bootstrap: {e}");
                             }
@@ -752,6 +778,12 @@ impl SyncEngine {
             .set_setting(SETTING_LAST_AUTH_USER_ID, &session.user_id)
             .map_err(|e| e.to_string())?;
 
+        if let Ok(n) = self.db.reattribute_orphan_items(&device_id) {
+            if n > 0 {
+                tracing::info!("reattributed {n} item(s) to the current device");
+            }
+        }
+
         // Devices must exist locally before items (FK: source_device_id)
         self.pull_devices(session, &device_id).await?;
 
@@ -892,6 +924,37 @@ impl SyncEngine {
         }
     }
 
+    async fn push_item_with_retry(
+        &self,
+        client: &client::SupabaseClient,
+        session: &AuthSession,
+        item: &crate::db::ItemRecord,
+        dek: Option<&crate::crypto::Key>,
+    ) -> Result<(), String> {
+        match client.upsert_item(session, item, dek).await {
+            Ok(()) => Ok(()),
+            Err(err)
+                if err.contains("23503")
+                    || err.contains("items_source_device_id_fkey")
+                    || err.contains("Key is not present in table \"devices\"") =>
+            {
+                tracing::info!("item push failed (device not registered); re-registering device");
+                let (device_id, device_name) = self.prepare_local_device(session)?;
+                let platform = if cfg!(target_os = "macos") {
+                    "macos"
+                } else {
+                    "windows"
+                };
+                client
+                    .register_device(session, &device_id, &device_name, platform)
+                    .await?;
+                let _ = self.db.reattribute_orphan_items(&device_id);
+                client.upsert_item(session, item, dek).await
+            }
+            Err(err) => Err(err),
+        }
+    }
+
     async fn sync_tick(&self) -> Result<PushReport, Box<dyn std::error::Error + Send + Sync>> {
         let mut failures = 0u32;
         let Some(client) = self.client.as_ref() else {
@@ -958,7 +1021,10 @@ impl SyncEngine {
             if !self.backoff_due(&backoff_key) {
                 continue;
             }
-            match client.upsert_item(&session, &item, dek.as_ref()).await {
+            match self
+                .push_item_with_retry(&client, &session, &item, dek.as_ref())
+                .await
+            {
                 Ok(()) => {
                     self.backoff_clear(&backoff_key);
                     self.db.mark_synced(&item.id)?;
@@ -1299,7 +1365,7 @@ impl std::fmt::Display for EnsureSessionError {
         match self {
             EnsureSessionError::NotConfigured => write!(f, "Supabase not configured"),
             EnsureSessionError::NotLoggedIn => write!(f, "Not logged in"),
-            EnsureSessionError::AuthExpired => write!(f, "Session expired — please sign in again"),
+            EnsureSessionError::AuthExpired => write!(f, "Session expired. Please sign in again."),
             EnsureSessionError::Transient(msg) => write!(f, "{msg}"),
         }
     }
@@ -1315,7 +1381,7 @@ fn sync_summary_message(
 
     if push_failures > 0 {
         return format!(
-            "{prefix}: {push_failures} change(s) failed to upload. {pending_after} still pending — try Repair sync or sign in again."
+            "{prefix}: {push_failures} change(s) failed to upload. {pending_after} still pending. Try Repair sync or sign in again."
         );
     }
 

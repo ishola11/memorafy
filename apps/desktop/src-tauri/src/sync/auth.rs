@@ -18,7 +18,7 @@ impl std::fmt::Display for RefreshError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             RefreshError::Network(msg) => write!(f, "{msg}"),
-            RefreshError::InvalidSession => write!(f, "Session expired — please sign in again"),
+            RefreshError::InvalidSession => write!(f, "Session expired. Please sign in again."),
         }
     }
 }
@@ -42,16 +42,19 @@ pub fn save_session(db: &Database, session: &AuthSession, email: &str) -> Result
     let json = serde_json::to_string(session)
         .map_err(|e| format!("could not serialize session: {e}"))?;
 
-    match keychain::store(&json) {
-        Ok(()) => {
-            // Don't leave a stale plaintext copy from an older version or a
-            // previous fallback once the keychain write succeeds.
-            let _ = db.delete_setting(LEGACY_SETTING_KEY);
-        }
-        Err(e) => {
-            tracing::warn!("keychain unavailable, falling back to local storage: {e}");
-            db.set_setting(LEGACY_SETTING_KEY, &json)
-                .map_err(|e| e.to_string())?;
+    if keychain::prefer_local_storage() {
+        db.set_setting(LEGACY_SETTING_KEY, &json)
+            .map_err(|e| e.to_string())?;
+    } else {
+        match keychain::store(&json) {
+            Ok(()) => {
+                let _ = db.delete_setting(LEGACY_SETTING_KEY);
+            }
+            Err(e) => {
+                tracing::warn!("keychain unavailable, falling back to local storage: {e}");
+                db.set_setting(LEGACY_SETTING_KEY, &json)
+                    .map_err(|e| e.to_string())?;
+            }
         }
     }
 
@@ -60,12 +63,16 @@ pub fn save_session(db: &Database, session: &AuthSession, email: &str) -> Result
 }
 
 pub fn load_session(db: &Database) -> Result<Option<AuthSession>, String> {
-    let raw = match keychain::load() {
-        Ok(Some(json)) => Some(json),
-        Ok(None) => migrate_legacy_session(db)?,
-        Err(e) => {
-            tracing::warn!("keychain unavailable, reading local fallback: {e}");
-            db.get_setting(LEGACY_SETTING_KEY).map_err(|e| e.to_string())?
+    let raw = if keychain::prefer_local_storage() {
+        db.get_setting(LEGACY_SETTING_KEY).map_err(|e| e.to_string())?
+    } else {
+        match keychain::load() {
+            Ok(Some(json)) => Some(json),
+            Ok(None) => migrate_legacy_session(db)?,
+            Err(e) => {
+                tracing::warn!("keychain unavailable, reading local fallback: {e}");
+                db.get_setting(LEGACY_SETTING_KEY).map_err(|e| e.to_string())?
+            }
         }
     };
 
@@ -89,6 +96,9 @@ pub fn load_session(db: &Database) -> Result<Option<AuthSession>, String> {
 /// Leaves the plaintext row in place if the keychain write fails, so a
 /// transient backend issue can't lose the user's session.
 fn migrate_legacy_session(db: &Database) -> Result<Option<String>, String> {
+    if keychain::prefer_local_storage() {
+        return db.get_setting(LEGACY_SETTING_KEY).map_err(|e| e.to_string());
+    }
     let Some(raw) = db.get_setting(LEGACY_SETTING_KEY).map_err(|e| e.to_string())? else {
         return Ok(None);
     };
@@ -103,11 +113,10 @@ fn migrate_legacy_session(db: &Database) -> Result<Option<String>, String> {
 }
 
 pub fn clear_session(db: &Database) -> Result<(), String> {
-    if let Err(e) = keychain::clear() {
-        // Sign-out must still succeed locally even if the OS keychain call
-        // fails; the stale keychain entry is harmless without a valid
-        // refresh token pairing and will be overwritten on next sign-in.
-        tracing::debug!("keychain clear: {e}");
+    if !keychain::prefer_local_storage() {
+        if let Err(e) = keychain::clear() {
+            tracing::debug!("keychain clear: {e}");
+        }
     }
     db.delete_setting(LEGACY_SETTING_KEY).map_err(|e| e.to_string())?;
     db.delete_setting("user_email").map_err(|e| e.to_string())?;

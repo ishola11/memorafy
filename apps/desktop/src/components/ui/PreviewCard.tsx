@@ -107,7 +107,7 @@ async function runAction(action: () => void | Promise<void>, setBusy: (v: BusyAc
     console.error(`card action ${key} failed:`, err);
     useActionToastStore
       .getState()
-      .showActionToast("That didn't work — please try again.", "error");
+      .showActionToast("That didn't work. Please try again.", "error");
   } finally {
     setBusy(null);
   }
@@ -191,7 +191,7 @@ export function PreviewCard({
       console.error("collection toggle failed:", err);
       useActionToastStore
         .getState()
-        .showActionToast("Couldn't update the collection — please try again.", "error");
+        .showActionToast("Couldn't update the collection. Please try again.", "error");
     } finally {
       setBusyAction(null);
     }

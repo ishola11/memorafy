@@ -223,7 +223,7 @@ export function FeedbackSettings({ userEmail }: { userEmail: string | null }) {
 
         <p className="flex items-start gap-2 text-xs text-muted">
           <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-          Only the information shown above will be submitted — and only after you review and
+          Only the information shown above will be submitted, and only after you review and
           confirm it in your browser. Nothing is sent in the background.
         </p>
       </div>

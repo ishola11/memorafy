@@ -157,7 +157,7 @@ export function AuthForms({
             onClick={() => switchMode("signin")}
             className="w-full rounded-xl bg-accent py-2.5 text-sm font-medium text-white hover:bg-accent/90"
           >
-            I've confirmed — sign in
+            I've confirmed. Sign in
           </button>
           <button
             type="button"
@@ -438,8 +438,8 @@ export function EncryptionLockedCard({ onResolved }: { onResolved: (state: SyncS
           Sync encryption is locked
         </p>
         <p className="mt-1 text-xs leading-relaxed text-amber-800/80 dark:text-amber-200/80">
-          Your clips sync end-to-end encrypted, and this device doesn't hold the key yet —
-          this happens after updating to the version that introduced encryption, or after a
+          Your clips sync end-to-end encrypted, and this device doesn't hold the key yet.
+          This happens after updating to the version that introduced encryption, or after a
           password reset. Enter your current password to unlock (syncing is paused until
           then; nothing is ever uploaded unencrypted).
         </p>
@@ -476,7 +476,7 @@ export function EncryptionLockedCard({ onResolved }: { onResolved: (state: SyncS
         <div className="space-y-2 rounded-lg border border-red-500/40 bg-red-500/10 p-3">
           <p className="text-xs leading-relaxed text-red-700 dark:text-red-300">
             Resetting creates a new key. Clips synced under the old key become{" "}
-            <span className="font-semibold">permanently unreadable</span> — only what's still
+            <span className="font-semibold">permanently unreadable</span>. Only what's still
             on your devices will re-sync. Enter your password above, then confirm.
           </p>
           <div className="flex gap-2">

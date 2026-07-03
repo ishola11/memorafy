@@ -342,6 +342,14 @@ impl SupabaseClient {
         item: &ItemRecord,
         dek: Option<&crate::crypto::Key>,
     ) -> Result<(), String> {
+        if item.content_type == "image" {
+            if let Some(local) = item.blob_path.as_deref() {
+                if std::path::Path::new(local).is_file() {
+                    self.upload_item_blob(session, &item.id, local, dek).await?;
+                }
+            }
+        }
+
         let mut cloud = item_to_cloud(session, item, dek);
         cloud.user_id = session.user_id.clone();
 
@@ -383,6 +391,88 @@ impl SupabaseClient {
             let text = resp.text().await.unwrap_or_default();
             return Err(format!("Push failed: {text}"));
         }
+        Ok(())
+    }
+
+    pub async fn upload_item_blob(
+        &self,
+        session: &AuthSession,
+        item_id: &str,
+        local_path: &str,
+        dek: Option<&crate::crypto::Key>,
+    ) -> Result<(), String> {
+        let raw = std::fs::read(local_path).map_err(|e| format!("read image blob: {e}"))?;
+        let (body, content_type) = if let Some(key) = dek {
+            (
+                crate::crypto::encrypt_blob(key, &raw).into_bytes(),
+                "application/octet-stream",
+            )
+        } else {
+            (raw, "image/png")
+        };
+        let key = blob_storage_key(&session.user_id, item_id);
+        let url = format!(
+            "{}/object/clip-blobs/{}",
+            self.config.storage_url(),
+            key
+        );
+        let resp = self
+            .http
+            .post(&url)
+            .headers(auth_headers(&self.config, session)?)
+            .header("x-upsert", "true")
+            .header("Content-Type", content_type)
+            .body(body)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+        if resp.status().is_success() {
+            return Ok(());
+        }
+        let text = resp.text().await.unwrap_or_default();
+        Err(format!("Image upload failed: {text}"))
+    }
+
+    pub async fn download_item_blob(
+        &self,
+        session: &AuthSession,
+        item_id: &str,
+        dest_path: &std::path::Path,
+        dek: Option<&crate::crypto::Key>,
+    ) -> Result<(), String> {
+        let key = blob_storage_key(&session.user_id, item_id);
+        let url = format!(
+            "{}/object/clip-blobs/{}",
+            self.config.storage_url(),
+            key
+        );
+        let resp = self
+            .http
+            .get(&url)
+            .headers(auth_headers(&self.config, session)?)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+        if resp.status() == reqwest::StatusCode::NOT_FOUND {
+            return Err("Image not uploaded yet from the source device.".into());
+        }
+        if !resp.status().is_success() {
+            let text = resp.text().await.unwrap_or_default();
+            return Err(format!("Image download failed: {text}"));
+        }
+        let bytes = resp.bytes().await.map_err(|e| e.to_string())?;
+        let png = if let Some(key) = dek {
+            let encoded = String::from_utf8(bytes.to_vec())
+                .map_err(|_| "encrypted blob is not valid UTF-8".to_string())?;
+            crate::crypto::decrypt_blob(key, &encoded)
+                .map_err(|e| format!("decrypt image blob: {e}"))?
+        } else {
+            bytes.to_vec()
+        };
+        if let Some(parent) = dest_path.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+        std::fs::write(dest_path, png).map_err(|e| e.to_string())?;
         Ok(())
     }
 
@@ -717,7 +807,6 @@ impl SupabaseClient {
     }
 }
 
-/// Builds authenticated request headers. Fails (instead of panicking) if the
 /// PostgREST signals a missing RPC with 42883 (Postgres) or PGRST202 (schema cache).
 fn rpc_missing(err: &str) -> bool {
     err.contains("42883")
@@ -726,6 +815,12 @@ fn rpc_missing(err: &str) -> bool {
         || err.contains("does not exist")
 }
 
+pub fn blob_storage_key(user_id: &str, item_id: &str) -> String {
+    format!("{user_id}/{item_id}.png")
+}
+
+/// Builds authenticated request headers. Fails (instead of panicking) if the
+/// configured anon key or token contains characters invalid in a header —
 /// e.g. a newline from a badly pasted secret.
 fn auth_headers(config: &SyncConfig, session: &AuthSession) -> Result<HeaderMap, String> {
     let mut headers = HeaderMap::new();
@@ -771,11 +866,16 @@ fn item_to_cloud(session: &AuthSession, item: &ItemRecord, dek: Option<&crate::c
         url_domain: enc(&item.url_domain),
         code_language: item.code_language.clone(),
         line_count: item.line_count,
-        // Never push the local absolute filesystem path (leaks the
-        // username/directory layout and is meaningless on other devices —
-        // there's no Supabase Storage upload yet, so image bytes stay
-        // local-only until that lands).
-        blob_path: None,
+        blob_path: if item.content_type == "image"
+            && item
+                .blob_path
+                .as_deref()
+                .is_some_and(|p| std::path::Path::new(p).is_file())
+        {
+            Some(blob_storage_key(&session.user_id, &item.id))
+        } else {
+            None
+        },
         blob_size: item.blob_size,
         content_hash: match dek {
             Some(key) => keyed_content_hash(key, &item.content_hash),

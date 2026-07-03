@@ -285,11 +285,13 @@ impl Database {
     pub fn insert_image_item(
         &self,
         device_id: &str,
-        blob_path: String,
+        item_id: &str,
+        blob_path: &str,
+        thumbnail_path: &str,
         blob_size: i64,
-        thumbnail_path: String,
         dimensions_label: &str,
         content_hash: &str,
+        title: &str,
     ) -> Result<ItemRecord, rusqlite::Error> {
         let mut conn = self.conn.lock();
         let recent: Option<String> = conn
@@ -306,9 +308,8 @@ impl Database {
             return self.get_item(&id);
         }
 
-        let id = Uuid::new_v4().to_string();
         let now = Utc::now().to_rfc3339();
-        let display_title = format!("Image {dimensions_label}");
+        let display_title = title.to_string();
 
         let tx = conn.transaction()?;
         tx.execute(
@@ -319,7 +320,7 @@ impl Database {
                 source_device_id, sync_status, created_at, updated_at
             ) VALUES (?1,'history','image',?2,?3,NULL,NULL,NULL,NULL,NULL,NULL,?4,?5,?6,?7,NULL,?8,'pending',?9,?9)",
             params![
-                id,
+                item_id,
                 display_title,
                 dimensions_label,
                 blob_path,
@@ -333,12 +334,39 @@ impl Database {
         tx.execute(
             "INSERT INTO items_fts (id, display_title, preview_text, url_domain, tags, trigger)
              VALUES (?1, ?2, ?3, '', '', NULL)",
-            params![id, display_title, dimensions_label],
+            params![item_id, display_title, dimensions_label],
         )?;
-        self.enqueue_sync(&tx, "create", "item", &id)?;
+        self.enqueue_sync(&tx, "create", "item", item_id)?;
         tx.commit()?;
         drop(conn);
-        self.get_item(&id)
+        self.get_item(item_id)
+    }
+
+    pub fn set_item_blob_paths(
+        &self,
+        item_id: &str,
+        blob_path: &str,
+        thumbnail_path: &str,
+        blob_size: i64,
+    ) -> Result<(), rusqlite::Error> {
+        self.conn.lock().execute(
+            "UPDATE items SET blob_path = ?1, thumbnail_path = ?2, blob_size = ?3 WHERE id = ?4",
+            params![blob_path, thumbnail_path, blob_size, item_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn item_needs_blob_download(&self, item_id: &str) -> Result<bool, rusqlite::Error> {
+        let conn = self.conn.lock();
+        let row: (String, Option<String>) = conn.query_row(
+            "SELECT content_type, blob_path FROM items WHERE id = ?1 AND deleted_at IS NULL",
+            params![item_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )?;
+        if row.0 != "image" {
+            return Ok(false);
+        }
+        Ok(row.1.as_deref().is_none_or(|p| !std::path::Path::new(p).is_file()))
     }
 
     fn enqueue_sync(

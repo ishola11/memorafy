@@ -108,6 +108,16 @@ pub fn encrypt_str(key: &Key, plaintext: &str) -> String {
     encrypt_bytes(key, plaintext.as_bytes())
 }
 
+/// Encrypts arbitrary bytes (e.g. PNG blobs for storage upload).
+pub fn encrypt_blob(key: &Key, plaintext: &[u8]) -> String {
+    encrypt_bytes(key, plaintext)
+}
+
+/// Decrypts bytes produced by [`encrypt_blob`].
+pub fn decrypt_blob(key: &Key, value: &str) -> Result<Vec<u8>, CryptoError> {
+    decrypt_bytes(key, value)
+}
+
 /// Decrypts a field produced by [`encrypt_str`].
 pub fn decrypt_str(key: &Key, value: &str) -> Result<String, CryptoError> {
     let bytes = decrypt_bytes(key, value)?;

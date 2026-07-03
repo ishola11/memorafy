@@ -728,7 +728,17 @@ impl SyncEngine {
                 let Some(item) = self.decrypt_incoming(item) else {
                     continue;
                 };
-                self.db.upsert_remote_item(&item)
+                match self.db.upsert_remote_item(&item) {
+                    Ok(()) => {
+                        if item.content_type == "image" {
+                            if let Err(e) = self.ensure_item_blob_local(session, &item.id).await {
+                                tracing::debug!("blob download {}: {e}", item.id);
+                            }
+                        }
+                        Ok(())
+                    }
+                    Err(e) => Err(e),
+                }
             };
             match result {
                 Ok(()) => changed = true,
@@ -748,6 +758,62 @@ impl SyncEngine {
             let _ = self.app.emit("items-updated", ());
         }
         Ok(())
+    }
+
+    async fn ensure_item_blob_local(&self, session: &AuthSession, item_id: &str) -> Result<(), String> {
+        if !self
+            .db
+            .item_needs_blob_download(item_id)
+            .map_err(|e| e.to_string())?
+        {
+            return Ok(());
+        }
+        let client = self.client.as_ref().ok_or("Supabase not configured")?;
+        let blob_path = self.db.blobs_dir().join(format!("{item_id}.png"));
+        let thumb_path = self.db.blobs_dir().join(format!("{item_id}_thumb.png"));
+        client
+            .download_item_blob(session, item_id, &blob_path, self.dek().as_ref())
+            .await?;
+
+        let item = self.db.get_item(item_id).map_err(|e| e.to_string())?;
+        let dims = item
+            .preview_text
+            .as_deref()
+            .and_then(crate::clipboard::images::parse_dimensions_label);
+        let decoded = crate::clipboard::images::load_image_blob(&blob_path, dims)?;
+        let thumb = crate::clipboard::images::make_thumbnail_png(
+            decoded.width,
+            decoded.height,
+            &decoded.rgba,
+        )?;
+        std::fs::write(&thumb_path, thumb).map_err(|e| e.to_string())?;
+        let size = std::fs::metadata(&blob_path)
+            .map(|m| m.len() as i64)
+            .unwrap_or(0);
+        self.db
+            .set_item_blob_paths(
+                item_id,
+                &blob_path.to_string_lossy(),
+                &thumb_path.to_string_lossy(),
+                size,
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub fn ensure_item_blob_blocking(&self, item_id: &str) -> Result<(), String> {
+        if !self
+            .db
+            .item_needs_blob_download(item_id)
+            .map_err(|e| e.to_string())?
+        {
+            return Ok(());
+        }
+        let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
+        rt.block_on(async {
+            let session = ensure_session(self).await.map_err(|e| e.to_string())?;
+            self.ensure_item_blob_local(&session, item_id).await
+        })
     }
 
     async fn bootstrap_after_auth(&self, session: &AuthSession) -> Result<(), String> {
@@ -803,6 +869,10 @@ impl SyncEngine {
             };
             if let Err(e) = self.db.upsert_remote_item(&item) {
                 tracing::warn!("pull item {}: {e}", item.id);
+            } else if item.content_type == "image" {
+                if let Err(e) = self.ensure_item_blob_local(session, &item.id).await {
+                    tracing::debug!("blob download {}: {e}", item.id);
+                }
             }
         }
 
@@ -1219,6 +1289,13 @@ impl SyncEngine {
         let is_new = !self.db.item_exists(&record.id)?;
 
         self.db.upsert_remote_item(&record)?;
+        if record.content_type == "image" {
+            if let Ok(session) = ensure_session(self).await {
+                if let Err(e) = self.ensure_item_blob_local(&session, &record.id).await {
+                    tracing::debug!("blob download {}: {e}", record.id);
+                }
+            }
+        }
         self.db
             .set_setting("last_sync_at", &chrono::Utc::now().to_rfc3339())?;
         let _ = self.app.emit("items-updated", ());

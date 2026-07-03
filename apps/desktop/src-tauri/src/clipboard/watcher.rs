@@ -6,16 +6,15 @@ use arboard::Clipboard;
 use tauri::{AppHandle, Emitter, Manager};
 
 use super::content::{classify, hash_content, hash_image, CapturedContent};
-use super::images::{dimensions_label, make_thumbnail_png, save_png};
+use super::images::{
+    clipboard_image_title, dimensions_label, make_thumbnail_png, parse_image_path,
+    save_png, try_load_image_from_clipboard_text,
+};
 use crate::AppState;
 
-/// Watcher polls every 400ms; suppress enough iterations to cover programmatic writes.
 const SUPPRESS_ITERATIONS: u32 = 20;
 const RAPID_CAPTURE_WINDOW: Duration = Duration::from_secs(30);
 const RECENT_PLAIN_TEXT_LIMIT: i64 = 8;
-/// Skip pathological captures (multi-hundred-MB selections) that would bloat
-/// SQLite and stall the UI. The live clipboard is untouched — we just don't
-/// record the item in history.
 const MAX_TEXT_CAPTURE_BYTES: usize = 10 * 1024 * 1024;
 const CLIPBOARD_INIT_RETRY: Duration = Duration::from_secs(5);
 
@@ -64,6 +63,28 @@ pub fn start_watcher(app: AppHandle) {
             let text = clipboard.get_text().ok();
             let image = clipboard.get_image().ok();
 
+            // Copying an image file in Finder often puts only the path on the pasteboard.
+            if let Some(ref t) = text {
+                if let Some(decoded) = try_load_image_from_clipboard_text(t) {
+                    let hash = hash_image(
+                        decoded.width as usize,
+                        decoded.height as usize,
+                        &decoded.rgba,
+                    );
+                    if hash != last_hash && !should_skip_capture(&state, &hash, None) {
+                        last_hash = hash.clone();
+                        let title = super::images::image_name_from_clipboard_text(t)
+                            .unwrap_or_else(|| clipboard_image_title(None, decoded.width, decoded.height));
+                        if persist_rgba_image(&state, &decoded.rgba, decoded.width, decoded.height, &hash, &title).is_ok() {
+                            record_capture(&state, &hash);
+                            let _ = app.emit("items-updated", ());
+                            state.sync_engine.request_sync();
+                            continue;
+                        }
+                    }
+                }
+            }
+
             if let Some(ref img) = image {
                 if should_capture_image(text.as_deref()) {
                     let hash = hash_image(img.width, img.height, &img.bytes);
@@ -75,9 +96,17 @@ pub fn start_watcher(app: AppHandle) {
                         continue;
                     }
                     last_hash = hash.clone();
-                    if let Err(e) = persist_image(&state, img, &hash) {
-                        tracing::error!("persist image: {e}");
-                    } else {
+                    let title = clipboard_image_title(text.as_deref(), img.width as u32, img.height as u32);
+                    if persist_rgba_image(
+                        &state,
+                        &img.bytes,
+                        img.width as u32,
+                        img.height as u32,
+                        &hash,
+                        &title,
+                    )
+                    .is_ok()
+                    {
                         record_capture(&state, &hash);
                         let _ = app.emit("items-updated", ());
                         state.sync_engine.request_sync();
@@ -88,6 +117,9 @@ pub fn start_watcher(app: AppHandle) {
 
             if let Some(text) = text {
                 if text.trim().is_empty() {
+                    continue;
+                }
+                if parse_image_path(&text).is_some() {
                     continue;
                 }
                 if text.len() > MAX_TEXT_CAPTURE_BYTES {
@@ -121,15 +153,10 @@ pub fn start_watcher(app: AppHandle) {
     });
 }
 
-/// macOS often puts a filename/path in plain text alongside real image bytes.
-/// Prefer the image when both are present, or when the text is only a filename.
 fn should_capture_image(text: Option<&str>) -> bool {
     match text.map(str::trim).filter(|t| !t.is_empty()) {
         None => true,
         Some(t) if text_looks_like_image_filename(t) => true,
-        #[cfg(target_os = "macos")]
-        Some(_) => true,
-        #[cfg(not(target_os = "macos"))]
         Some(_) => false,
     }
 }
@@ -154,6 +181,37 @@ fn record_capture(state: &AppState, hash: &str) {
     *state.last_capture.lock() = Some((hash.to_string(), Instant::now()));
 }
 
+fn persist_rgba_image(
+    state: &AppState,
+    rgba: &[u8],
+    width: u32,
+    height: u32,
+    hash: &str,
+    title: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let id = uuid::Uuid::new_v4().to_string();
+    let blob_path = state.db.blobs_dir().join(format!("{id}.png"));
+    let thumb_path = state.db.blobs_dir().join(format!("{id}_thumb.png"));
+
+    save_png(&blob_path, width, height, rgba)?;
+    std::fs::write(&thumb_path, make_thumbnail_png(width, height, rgba)?)?;
+    let size = std::fs::metadata(&blob_path)?.len() as i64;
+    let label = dimensions_label(width, height);
+
+    state.db.insert_image_item(
+        &state.device_id(),
+        &id,
+        &blob_path.to_string_lossy(),
+        &thumb_path.to_string_lossy(),
+        size,
+        &label,
+        hash,
+        title,
+    )?;
+    state.db.touch_device(&state.device_id())?;
+    Ok(())
+}
+
 fn persist_capture(
     state: &AppState,
     content_type: &str,
@@ -175,37 +233,6 @@ fn persist_capture(
         None,
         None,
         None,
-        hash,
-    )?;
-    state.db.touch_device(&state.device_id())?;
-    Ok(())
-}
-
-fn persist_image(
-    state: &AppState,
-    image: &arboard::ImageData,
-    hash: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let width = image.width as u32;
-    let height = image.height as u32;
-    let id = uuid::Uuid::new_v4();
-    let filename = format!("{id}.png");
-    let thumb_name = format!("{id}_thumb.png");
-    let path = state.db.blobs_dir().join(&filename);
-    let thumb_path = state.db.blobs_dir().join(&thumb_name);
-
-    save_png(&path, width, height, &image.bytes)?;
-    let thumb_bytes = make_thumbnail_png(width, height, &image.bytes)?;
-    std::fs::write(&thumb_path, thumb_bytes)?;
-
-    let size = std::fs::metadata(&path)?.len() as i64;
-    let label = dimensions_label(width, height);
-    state.db.insert_image_item(
-        &state.device_id(),
-        path.to_string_lossy().into_owned(),
-        size,
-        thumb_path.to_string_lossy().into_owned(),
-        &label,
         hash,
     )?;
     state.db.touch_device(&state.device_id())?;

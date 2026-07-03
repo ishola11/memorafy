@@ -1,6 +1,6 @@
 mod concealed;
 mod content;
-mod images;
+pub mod images;
 mod watcher;
 
 pub use content::hash_content;

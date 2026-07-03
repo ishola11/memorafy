@@ -65,10 +65,20 @@ pub fn copy_item(state: State<'_, AppState>, id: String, plain_text: bool) -> Re
             }
             return Err("This image has no plain-text representation.".into());
         }
+        state
+            .sync_engine
+            .ensure_item_blob_blocking(&id)
+            .map_err(|e| format!("Could not download image: {e}"))?;
+        let item = state.db.get_item(&id).map_err(|e| e.to_string())?;
         let blob_path = item
             .blob_path
             .as_deref()
-            .ok_or("Image file is missing on this device.")?;
+            .ok_or("Image is not on this device yet. Open sync and try again.")?;
+        if !std::path::Path::new(blob_path).is_file() {
+            return Err(
+                "Image is not on this device yet. Use Sync now while signed in.".into(),
+            );
+        }
         return write_clipboard_image(
             &state,
             std::path::Path::new(blob_path),

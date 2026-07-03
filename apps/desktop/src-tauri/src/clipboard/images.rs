@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 const THUMB_MAX: u32 = 160;
 
@@ -78,6 +78,71 @@ pub fn make_thumbnail_png(width: u32, height: u32, rgba: &[u8]) -> Result<Vec<u8
 
 pub fn dimensions_label(width: u32, height: u32) -> String {
     format!("{width}×{height}")
+}
+
+pub fn image_filename_title(path: &Path) -> String {
+    path.file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("Image")
+        .to_string()
+}
+
+pub fn clipboard_image_title(text: Option<&str>, width: u32, height: u32) -> String {
+    if let Some(t) = text.map(str::trim).filter(|t| !t.is_empty()) {
+        if let Some(name) = image_name_from_clipboard_text(t) {
+            return name;
+        }
+    }
+    format!("Image {}", dimensions_label(width, height))
+}
+
+/// Filename from clipboard text (bare name or file path / file URL).
+pub fn image_name_from_clipboard_text(text: &str) -> Option<String> {
+    let path = parse_image_path(text)?;
+    Some(image_filename_title(&path))
+}
+
+pub fn parse_image_path(text: &str) -> Option<PathBuf> {
+    let trimmed = text.trim().trim_matches('"');
+    if trimmed.is_empty() {
+        return None;
+    }
+    let path_str = trimmed.strip_prefix("file://").unwrap_or(trimmed);
+    let path = PathBuf::from(path_str);
+    if !is_image_path(&path) {
+        return None;
+    }
+    Some(path)
+}
+
+pub fn is_image_path(path: &Path) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .map(|e| {
+            matches!(
+                e.to_ascii_lowercase().as_str(),
+                "png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" | "tif" | "tiff" | "heic"
+            )
+        })
+        .unwrap_or(false)
+}
+
+pub fn load_image_file(path: &Path) -> Result<DecodedImage, String> {
+    if !path.is_file() {
+        return Err(format!("image file not found: {}", path.display()));
+    }
+    let img = image::open(path).map_err(|e| format!("open image: {e}"))?;
+    let rgba = img.to_rgba8();
+    Ok(DecodedImage {
+        width: rgba.width(),
+        height: rgba.height(),
+        rgba: rgba.into_raw(),
+    })
+}
+
+pub fn try_load_image_from_clipboard_text(text: &str) -> Option<DecodedImage> {
+    let path = parse_image_path(text)?;
+    load_image_file(&path).ok()
 }
 
 #[cfg(test)]

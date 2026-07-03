@@ -39,6 +39,10 @@ impl SyncConfig {
         })
     }
 
+    pub fn storage_url(&self) -> String {
+        format!("{}/storage/v1", self.url.trim_end_matches('/'))
+    }
+
     pub fn rest_url(&self) -> String {
         format!("{}/rest/v1", self.url.trim_end_matches('/'))
     }

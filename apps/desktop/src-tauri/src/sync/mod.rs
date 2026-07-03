@@ -119,6 +119,7 @@ pub struct SyncRepairResultDto {
 
 struct PushReport {
     failures: u32,
+    last_error: Option<String>,
 }
 
 impl SyncEngine {
@@ -569,7 +570,7 @@ impl SyncEngine {
         let state = self.get_state()?;
         let pending_after = state.pending_count;
         Ok(SyncActionResultDto {
-            message: sync_summary_message(pending_before, pending_after, report.failures, false),
+            message: sync_summary_message(pending_before, pending_after, &report, false),
             pending_before,
             pending_after,
             state,
@@ -603,7 +604,7 @@ impl SyncEngine {
         let state = self.get_state()?;
         let pending_after = state.pending_count;
         Ok(SyncRepairResultDto {
-            message: sync_summary_message(pending_before, pending_after, report.failures, true),
+            message: sync_summary_message(pending_before, pending_after, &report, true),
             pending_before,
             pending_after,
             queue_cleared,
@@ -957,19 +958,20 @@ impl SyncEngine {
 
     async fn sync_tick(&self) -> Result<PushReport, Box<dyn std::error::Error + Send + Sync>> {
         let mut failures = 0u32;
+        let mut last_error: Option<String> = None;
         let Some(client) = self.client.as_ref() else {
-            return Ok(PushReport { failures });
+            return Ok(PushReport { failures, last_error });
         };
 
         let Some(session) = auth::load_session(&self.db)? else {
-            return Ok(PushReport { failures });
+            return Ok(PushReport { failures, last_error });
         };
 
         let session = match try_refresh_session(self, session).await {
             Ok(session) => session,
-            Err(EnsureSessionError::AuthExpired) => return Ok(PushReport { failures }),
+            Err(EnsureSessionError::AuthExpired) => return Ok(PushReport { failures, last_error }),
             Err(EnsureSessionError::NotConfigured | EnsureSessionError::NotLoggedIn) => {
-                return Ok(PushReport { failures });
+                return Ok(PushReport { failures, last_error });
             }
             Err(EnsureSessionError::Transient(e)) => return Err(e.into()),
         };
@@ -998,6 +1000,7 @@ impl SyncEngine {
                 }
                 Err(e) => {
                     failures += 1;
+                    last_error = Some(humanize_push_error(&e));
                     self.backoff_record_failure(&backoff_key);
                     tracing::warn!("push collection {}: {e}", collection.id);
                 }
@@ -1011,6 +1014,9 @@ impl SyncEngine {
         let pending = self.db.list_pending_sync_items()?;
         if dek.is_none() && pending.iter().any(|i| i.deleted_at.is_none()) {
             tracing::debug!("item push paused — encryption key locked");
+            last_error = Some(
+                "Sync encryption is locked. Unlock it in Settings → Account.".into(),
+            );
         }
         for item in pending {
             let is_deletion = item.deleted_at.is_some();
@@ -1063,6 +1069,7 @@ impl SyncEngine {
                 }
                 Err(e) => {
                     failures += 1;
+                    last_error = Some(humanize_push_error(&e));
                     self.backoff_record_failure(&backoff_key);
                     tracing::warn!("push item {}: {e}", item.id);
                 }
@@ -1173,7 +1180,10 @@ impl SyncEngine {
             *self.last_presence.lock() = Some(Instant::now());
         }
 
-        Ok(PushReport { failures })
+        Ok(PushReport {
+            failures,
+            last_error,
+        })
     }
 
     pub async fn handle_remote_item(
@@ -1374,14 +1384,20 @@ impl std::fmt::Display for EnsureSessionError {
 fn sync_summary_message(
     pending_before: i64,
     pending_after: i64,
-    push_failures: u32,
+    report: &PushReport,
     repaired: bool,
 ) -> String {
     let prefix = if repaired { "Repair finished" } else { "Sync finished" };
+    let push_failures = report.failures;
 
     if push_failures > 0 {
+        let detail = report
+            .last_error
+            .as_deref()
+            .map(|e| format!(" Last error: {e}"))
+            .unwrap_or_default();
         return format!(
-            "{prefix}: {push_failures} change(s) failed to upload. {pending_after} still pending. Try Repair sync or sign in again."
+            "{prefix}: {push_failures} change(s) failed to upload. {pending_after} still pending.{detail}"
         );
     }
 
@@ -1399,7 +1415,31 @@ fn sync_summary_message(
         );
     }
 
-    format!("{prefix}: {pending_after} change(s) still pending.")
+    let detail = report
+        .last_error
+        .as_deref()
+        .map(|e| format!(" {e}"))
+        .unwrap_or_else(|| {
+            " Uploads are retrying in the background.".to_string()
+        });
+    format!("{prefix}: {pending_after} change(s) still pending.{detail}")
+}
+
+fn humanize_push_error(raw: &str) -> String {
+    if raw.contains("PGRST202") || raw.contains("Could not find the function public.upsert_item") {
+        return "Server is missing the upsert_item migration. Run services/migrations/009_fix_items_sync.sql in Supabase.".into();
+    }
+    if raw.contains("42501") {
+        return "Server rejected the upload (permissions). Run migration 009 in Supabase.".into();
+    }
+    if raw.contains("23503") {
+        return "Device not registered in the cloud. Try Repair sync once.".into();
+    }
+    if raw.len() > 180 {
+        format!("{}…", &raw[..180])
+    } else {
+        raw.to_string()
+    }
 }
 
 fn ensure_session_error_message(err: EnsureSessionError) -> String {

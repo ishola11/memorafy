@@ -346,11 +346,12 @@ impl SupabaseClient {
         cloud.user_id = session.user_id.clone();
 
         let rpc_url = format!("{}/rpc/upsert_item", self.config.rest_url());
+        let rpc_body = serde_json::json!({ "p": cloud });
         let rpc_resp = self
             .http
             .post(&rpc_url)
             .headers(auth_headers(&self.config, session)?)
-            .json(&cloud)
+            .json(&rpc_body)
             .send()
             .await
             .map_err(|e| e.to_string())?;
@@ -360,8 +361,8 @@ impl SupabaseClient {
         }
 
         let rpc_err = rpc_resp.text().await.unwrap_or_default();
-        if rpc_err.contains("42883") || rpc_err.contains("does not exist") {
-            tracing::debug!("upsert_item RPC missing, falling back to REST: {rpc_err}");
+        if rpc_missing(&rpc_err) {
+            tracing::debug!("upsert_item RPC unavailable, falling back to REST: {rpc_err}");
         } else if !rpc_err.is_empty() {
             return Err(format!("Push failed: {rpc_err}"));
         }
@@ -717,7 +718,14 @@ impl SupabaseClient {
 }
 
 /// Builds authenticated request headers. Fails (instead of panicking) if the
-/// configured anon key or token contains characters invalid in a header —
+/// PostgREST signals a missing RPC with 42883 (Postgres) or PGRST202 (schema cache).
+fn rpc_missing(err: &str) -> bool {
+    err.contains("42883")
+        || err.contains("PGRST202")
+        || err.contains("Could not find the function")
+        || err.contains("does not exist")
+}
+
 /// e.g. a newline from a badly pasted secret.
 fn auth_headers(config: &SyncConfig, session: &AuthSession) -> Result<HeaderMap, String> {
     let mut headers = HeaderMap::new();

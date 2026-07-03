@@ -500,6 +500,20 @@ impl Database {
         Ok(count > 0)
     }
 
+    /// Returns another live item id with the same content hash, if any.
+    pub fn content_hash_owner(&self, content_hash: &str, exclude_id: &str) -> Result<Option<String>, rusqlite::Error> {
+        let conn = self.conn.lock();
+        let mut stmt = conn.prepare(
+            "SELECT id FROM items WHERE content_hash = ?1 AND deleted_at IS NULL AND id != ?2 LIMIT 1",
+        )?;
+        let mut rows = stmt.query(params![content_hash, exclude_id])?;
+        if let Some(row) = rows.next()? {
+            Ok(Some(row.get(0)?))
+        } else {
+            Ok(None)
+        }
+    }
+
     pub fn content_hash_synced_exists(&self, content_hash: &str) -> Result<bool, rusqlite::Error> {
         let count: i64 = self.conn.lock().query_row(
             "SELECT COUNT(*) FROM items WHERE content_hash = ?1 AND deleted_at IS NULL AND sync_status = 'synced'",
@@ -1419,6 +1433,17 @@ impl Database {
     pub fn upsert_remote_item(&self, item: &crate::sync::client::CloudItem) -> Result<(), rusqlite::Error> {
         if self.is_locally_hidden(&item.id)? {
             return Ok(());
+        }
+
+        if !item.content_hash.is_empty() {
+            if let Some(existing) = self.content_hash_owner(&item.content_hash, &item.id)? {
+                tracing::debug!(
+                    "skipping remote item {} — same content already exists as {}",
+                    item.id,
+                    existing
+                );
+                return Ok(());
+            }
         }
 
         if let Some(ref device_id) = item.source_device_id {

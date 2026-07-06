@@ -1,13 +1,13 @@
 [package]
-name = "memora-desktop"
-version = "0.2.0"
-description = "Memora - Your personal cross-device memory"
-authors = ["Memora"]
+name = "memorafy-desktop"
+version = "0.1.9"
+description = "Memorafy - Your personal cross-device memory"
+authors = ["Memorafy"]
 edition = "2021"
 license = "MIT"
 
 [lib]
-name = "memora_desktop_lib"
+name = "memorafy_desktop_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

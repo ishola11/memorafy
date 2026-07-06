@@ -12,7 +12,7 @@ import {
   unlockSyncEncryption,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import type { SyncState } from "@memora/shared-types";
+import type { SyncState } from "@memorafy/shared-types";
 
 type AuthMode = "signin" | "signup" | "forgot" | "confirm-pending" | "reset-verify";
 

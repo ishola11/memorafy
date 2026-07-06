@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Check, Cloud, Download } from "lucide-react";
 import { onSyncReceived, onSyncTransfer } from "@/lib/api";
-import type { SyncTransfer } from "@memora/shared-types";
+import type { SyncTransfer } from "@memorafy/shared-types";
 
 type ToastKind = "sent" | "received";
 

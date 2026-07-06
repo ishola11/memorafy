@@ -1,11 +1,11 @@
 import { create } from "zustand";
-import type { AppTab, PreviewCard, TimelineSection, Collection } from "@memora/shared-types";
+import type { AppTab, PreviewCard, TimelineSection, Collection } from "@memorafy/shared-types";
 import * as api from "@/lib/api";
 
 function tabSearchFilters(
   tab: AppTab,
   collectionId: string | null,
-): Partial<import("@memora/shared-types").SearchFilters> {
+): Partial<import("@memorafy/shared-types").SearchFilters> {
   switch (tab) {
     case "pinned":
       return { isPinned: true };

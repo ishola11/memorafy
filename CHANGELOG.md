@@ -1,11 +1,15 @@
 # Changelog
 
-All notable changes to Memora are documented here. The format is based on
+## [0.1.9] - 2026-07-05
+
+### Changed
+- Rebrand from Memora to Memorafy (product name, npm packages, bundle ID, deep links, GitHub org). Version held at **0.1.9** for the memorafy.com launch rather than bumping semver for a rename-only release.
+All notable changes to Memorafy are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased] - 0.2.0
 
-The production-hardening release: Memora's first public, open-source version.
+The production-hardening release: Memorafy's first public, open-source version.
 
 ### Added
 - **End-to-end encryption** for synced clips: content is encrypted on-device
@@ -13,7 +17,7 @@ The production-hardening release: Memora's first public, open-source version.
   password-derived key; content hashes are HMACs; images are encrypted too.
   Unlock/Reset flows in Settings for key recovery scenarios.
 - **Accounts**: in-app sign-up with email OTP confirmation, forgot/reset
-  password (OTP and `memora://` deep-link email flows), change password with
+  password (OTP and `memorafy://` deep-link email flows), change password with
   automatic key re-wrap.
 - **First-launch onboarding**: welcome, privacy explainer, and optional sync
   setup; launch-at-login prompt.

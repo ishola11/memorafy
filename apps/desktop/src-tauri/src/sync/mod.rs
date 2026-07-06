@@ -294,7 +294,7 @@ impl SyncEngine {
         if self.dek().is_none() {
             return Err(
                 "That password doesn't match the encryption key. If you reset your password \
-                 recently, sign in on a device that still has Memora unlocked, or use \
+                 recently, sign in on a device that still has Memorafy unlocked, or use \
                  \"Reset sync encryption\" to start a new key."
                     .into(),
             );
@@ -574,7 +574,7 @@ impl SyncEngine {
         self.get_state()
     }
 
-    /// Complete sign-in from a Supabase email link opened via the `memora://` deep link.
+    /// Complete sign-in from a Supabase email link opened via the `memorafy://` deep link.
     pub async fn handle_auth_callback(&self, url: &str) -> Result<AuthCallbackResultDto, String> {
         let _client = self.client.as_ref().ok_or("Supabase not configured")?;
         let (params, callback_type) = auth_callback::parse_auth_callback_url(url)?;

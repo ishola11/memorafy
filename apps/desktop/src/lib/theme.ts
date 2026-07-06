@@ -1,4 +1,4 @@
-import type { ThemePreference } from "@memora/shared-types";
+import type { ThemePreference } from "@memorafy/shared-types";
 import { getThemePreference } from "@/lib/api";
 
 function systemPrefersDark(): boolean {

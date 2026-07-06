@@ -1,4 +1,4 @@
--- Memora cloud schema (Supabase / PostgreSQL)
+-- Memorafy cloud schema (Supabase / PostgreSQL)
 -- Run in Supabase SQL editor when enabling cloud sync
 
 CREATE TABLE IF NOT EXISTS public.devices (

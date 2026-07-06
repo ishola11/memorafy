@@ -16,7 +16,7 @@ import {
 import { TIMELINE_LABELS, cn } from "@/lib/utils";
 import { useActionToastStore } from "@/stores/action-toast-store";
 import { useAppStore } from "@/stores/app-store";
-import type { AppTab, PreviewCard as PreviewCardType } from "@memora/shared-types";
+import type { AppTab, PreviewCard as PreviewCardType } from "@memorafy/shared-types";
 
 const SNIPPETS_EMPTY_MESSAGE =
   "Save reusable text: signatures, templates, and boilerplate. Click New snippet to create your first one.";

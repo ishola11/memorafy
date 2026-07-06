@@ -1,13 +1,13 @@
 {
-  "name": "memora",
-  "version": "0.2.0",
+  "name": "memorafy",
+  "version": "0.1.9",
   "private": true,
   "license": "MIT",
   "description": "Your personal cross-device memory",
   "scripts": {
-    "dev": "npm run dev --workspace=@memora/desktop",
-    "build": "npm run build --workspace=@memora/desktop",
-    "tauri": "npm run tauri --workspace=@memora/desktop",
+    "dev": "npm run dev --workspace=@memorafy/desktop",
+    "build": "npm run build --workspace=@memorafy/desktop",
+    "tauri": "npm run tauri --workspace=@memorafy/desktop",
     "generate:updater-keys": "powershell -ExecutionPolicy Bypass -File scripts/generate-updater-keys.ps1",
     "sync:updater-pubkey": "node scripts/sync-updater-pubkey.mjs",
     "copy:updater-key": "powershell -ExecutionPolicy Bypass -File scripts/copy-updater-private-key.ps1"

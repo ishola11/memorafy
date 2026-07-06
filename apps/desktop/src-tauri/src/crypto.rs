@@ -27,7 +27,7 @@ const NONCE_LEN: usize = 24;
 pub const KEY_LEN: usize = 32;
 
 /// Domain separation for the HMAC key derived from the DEK.
-const HASH_KEY_CONTEXT: &[u8] = b"memora.content_hash.v1";
+const HASH_KEY_CONTEXT: &[u8] = b"memorafy.content_hash.v1";
 
 pub type Key = [u8; KEY_LEN];
 
@@ -63,7 +63,7 @@ pub fn generate_key() -> Key {
 pub fn derive_kek(password: &str, user_id: &str) -> Result<Key, String> {
     use sha2::Digest;
     let mut hasher = Sha256::new();
-    hasher.update(b"memora.kek_salt.v1");
+    hasher.update(b"memorafy.kek_salt.v1");
     hasher.update(user_id.as_bytes());
     let salt = hasher.finalize();
 

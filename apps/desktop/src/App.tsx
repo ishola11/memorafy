@@ -15,7 +15,7 @@ import {
   onTrayVisibility,
 } from "@/lib/api";
 import { applyTheme, initTheme, watchSystemTheme } from "@/lib/theme";
-import type { ThemePreference } from "@memora/shared-types";
+import type { ThemePreference } from "@memorafy/shared-types";
 import { useActionToastStore } from "@/stores/action-toast-store";
 import { useAppStore } from "@/stores/app-store";
 

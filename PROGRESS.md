@@ -1,4 +1,4 @@
-# Memora — Implementation Progress
+# Memorafy — Implementation Progress
 
 ## Phase 0: Foundation ✅
 
@@ -126,7 +126,7 @@
 
 1. Run `003_collections_realtime.sql` in Supabase if project predates this update
 2. Test Mac ↔ Windows collection sync
-3. Generate updater keys: `npm run generate:updater-keys` (once), commit `memora.key.pub`, add private key to GitHub secret `TAURI_SIGNING_PRIVATE_KEY`
+3. Generate updater keys: `npm run generate:updater-keys` (once), commit `memorafy.key.pub`, add private key to GitHub secret `TAURI_SIGNING_PRIVATE_KEY`
 4. Tag a release (`git tag v0.1.0 && git push origin v0.1.0`) to trigger signed builds via GitHub Actions
 
 ## Supabase Setup
@@ -139,8 +139,8 @@ Supabase GitHub integration). The one-time dashboard setup:
 3. Set **working directory** to `services/supabase` ([docs](https://supabase.com/docs/guides/deployment/branching/github-integration#set-the-working-directory))
 4. Set the **production branch** to `master` and enable branching if you want PR preview databases
 5. Copy project URL + anon key to `apps/desktop/.env`
-6. **Authentication → URL Configuration:** set **Site URL** to `memora://auth/callback` and add the same URL under **Redirect URLs** (exact match). Email confirmation and password-reset links then reopen the desktop app instead of a browser tab.
-7. **Authentication → Email Templates:** update **Confirm signup** and **Reset password** templates to show the 6-digit code (`{{ .Token }}`) instead of a magic link. See `services/supabase/templates/confirmation.html` and `recovery.html` for copy. Users enter the code in the Memora app (Settings → Account).
+6. **Authentication → URL Configuration:** set **Site URL** to `memorafy://auth/callback` and add the same URL under **Redirect URLs** (exact match). Email confirmation and password-reset links then reopen the desktop app instead of a browser tab.
+7. **Authentication → Email Templates:** update **Confirm signup** and **Reset password** templates to show the 6-digit code (`{{ .Token }}`) instead of a magic link. See `services/supabase/templates/confirmation.html` and `recovery.html` for copy. Users enter the code in the Memorafy app (Settings → Account).
 
 Merges to `master` then apply new files in `services/supabase/migrations/`
 automatically; PRs get isolated preview databases.

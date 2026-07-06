@@ -102,7 +102,7 @@ pub fn copy_item(state: State<'_, AppState>, id: String, plain_text: bool) -> Re
 
 /// Builds a rich-paste representation for content types where formatting is
 /// meaningful. Returns `None` when plain text is already the richest useful
-/// representation (text, code, snippets — Memora doesn't capture original
+/// representation (text, code, snippets — Memorafy doesn't capture original
 /// HTML/RTF for these, so there is nothing genuine to enrich).
 fn rich_html_for_item(item: &crate::db::ItemRecord) -> Option<String> {
     if item.content_type != "url" {

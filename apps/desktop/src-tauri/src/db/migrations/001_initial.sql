@@ -1,4 +1,4 @@
--- Memora local schema v1
+-- Memorafy local schema v1
 
 CREATE TABLE IF NOT EXISTS devices (
   id TEXT PRIMARY KEY,

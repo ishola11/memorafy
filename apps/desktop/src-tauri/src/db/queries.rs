@@ -1878,7 +1878,7 @@ mod tests {
 
         impl TempDirGuard {
             pub fn new() -> Self {
-                let dir = std::env::temp_dir().join(format!("memora-test-{}", uuid::Uuid::new_v4()));
+                let dir = std::env::temp_dir().join(format!("memorafy-test-{}", uuid::Uuid::new_v4()));
                 std::fs::create_dir_all(&dir).expect("create temp dir");
                 Self(dir)
             }

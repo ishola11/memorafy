@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Cloud, HardDrive, Loader2, Trash2 } from "lucide-react";
 import { clearHistory, previewClearHistory } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import type { ClearHistoryMode, ClearHistoryPreview, ClearHistoryScope } from "@memora/shared-types";
+import type { ClearHistoryMode, ClearHistoryPreview, ClearHistoryScope } from "@memorafy/shared-types";
 
 interface ClearHistorySettingsProps {
   loggedIn: boolean;
@@ -148,7 +148,7 @@ export function ClearHistorySettings({ loggedIn, onCleared }: ClearHistorySettin
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-medium">Everywhere</p>
                 <p className="mt-1 text-xs leading-relaxed text-muted">
-                  Deletes from your Memora cloud account. Other signed-in devices remove these clips
+                  Deletes from your Memorafy cloud account. Other signed-in devices remove these clips
                   on their next sync. This cannot be undone.
                 </p>
                 {!loggedIn ? (

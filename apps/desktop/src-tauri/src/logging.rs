@@ -10,12 +10,12 @@ use tracing_subscriber::EnvFilter;
 
 /// Rotated log files kept on disk (one per day).
 const MAX_LOG_FILES: usize = 7;
-const LOG_FILE_PREFIX: &str = "memora.log";
+const LOG_FILE_PREFIX: &str = "memorafy.log";
 
 /// Matches Tauri's `app_data_dir` for our identifier without needing an
 /// `AppHandle`, so logging can start before the app is built.
 pub fn app_data_dir() -> Option<PathBuf> {
-    dirs::data_dir().map(|d| d.join("com.memora.desktop"))
+    dirs::data_dir().map(|d| d.join("com.memorafy.app"))
 }
 
 pub fn log_dir() -> Option<PathBuf> {
@@ -52,7 +52,7 @@ pub fn init() {
                 .try_init()
                 .is_err()
             {
-                eprintln!("memora: logging already initialized");
+                eprintln!("memorafy: logging already initialized");
             }
         }
         None => {
@@ -62,7 +62,7 @@ pub fn init() {
                 .try_init()
                 .is_err()
             {
-                eprintln!("memora: logging already initialized");
+                eprintln!("memorafy: logging already initialized");
             }
             tracing::warn!("log directory unavailable — file logging disabled");
         }
@@ -107,7 +107,7 @@ fn prune_old_logs(dir: &std::path::Path) {
     if logs.len() <= MAX_LOG_FILES {
         return;
     }
-    // Daily-rotation filenames sort chronologically (memora.log.YYYY-MM-DD).
+    // Daily-rotation filenames sort chronologically (memorafy.log.YYYY-MM-DD).
     logs.sort();
     let excess = logs.len() - MAX_LOG_FILES;
     for path in logs.into_iter().take(excess) {

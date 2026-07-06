@@ -10,7 +10,7 @@ New-Item -ItemType Directory -Force -Path $KeysDir | Out-Null
 Push-Location $Desktop
 try {
   $env:CI = "true"
-  npx --yes @tauri-apps/cli signer generate -w "src-tauri/keys/memora.key" -f --ci
+  npx --yes @tauri-apps/cli signer generate -w "src-tauri/keys/memorafy.key" -f --ci
 } finally {
   Pop-Location
 }
@@ -18,7 +18,7 @@ try {
 Push-Location $Root
 try {
   node "scripts/sync-updater-pubkey.mjs"
-  Write-Host "Done. Commit src-tauri/keys/memora.key.pub and add memora.key content to GitHub secret TAURI_SIGNING_PRIVATE_KEY."
+  Write-Host "Done. Commit src-tauri/keys/memorafy.key.pub and add memorafy.key content to GitHub secret TAURI_SIGNING_PRIVATE_KEY."
 } finally {
   Pop-Location
 }

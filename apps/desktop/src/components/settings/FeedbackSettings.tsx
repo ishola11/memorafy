@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Bug, ExternalLink, Lightbulb, Loader2, ShieldCheck } from "lucide-react";
 import { getDiagnostics, submitFeedback } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import type { Diagnostics, FeedbackKind, FeedbackSection } from "@memora/shared-types";
+import type { Diagnostics, FeedbackKind, FeedbackSection } from "@memorafy/shared-types";
 
 interface FieldSpec {
   key: string;
@@ -20,7 +20,7 @@ const BUG_FIELDS: FieldSpec[] = [
 ];
 
 const FEATURE_FIELDS: FieldSpec[] = [
-  { key: "idea", label: "Idea", placeholder: "What would you like Memora to do?", multiline: true, required: true },
+  { key: "idea", label: "Idea", placeholder: "What would you like Memorafy to do?", multiline: true, required: true },
   { key: "why", label: "Why it would help", placeholder: "The problem it solves for you", multiline: true },
   { key: "workflow", label: "Your workflow", placeholder: "How you'd use it day to day", multiline: true },
 ];

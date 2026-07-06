@@ -2522,8 +2522,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "memora-desktop"
-version = "0.2.0"
+name = "memorafy-desktop"
+version = "0.1.9"
 dependencies = [
  "arboard",
  "argon2",

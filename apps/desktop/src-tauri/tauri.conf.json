@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Memora",
-  "version": "0.2.0",
-  "identifier": "com.memora.desktop",
+  "productName": "Memorafy",
+  "version": "0.1.9",
+  "identifier": "com.memorafy.app",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -14,7 +14,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Memora",
+        "title": "Memorafy",
         "width": 680,
         "height": 480,
         "visible": false,
@@ -26,7 +26,7 @@
       },
       {
         "label": "tray",
-        "title": "Memora",
+        "title": "Memorafy",
         "url": "index.html?window=tray",
         "width": 400,
         "height": 580,
@@ -42,7 +42,7 @@
       },
       {
         "label": "quick-paste",
-        "title": "Memora Quick Paste",
+        "title": "Memorafy Quick Paste",
         "url": "index.html?window=quick-paste",
         "width": 680,
         "height": 480,
@@ -57,7 +57,7 @@
       },
       {
         "label": "settings",
-        "title": "Memora Settings",
+        "title": "Memorafy Settings",
         "url": "index.html?window=settings",
         "width": 720,
         "height": 560,
@@ -107,13 +107,13 @@
     },
     "deep-link": {
       "desktop": {
-        "schemes": ["memora"]
+        "schemes": ["memorafy"]
       }
     },
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDVBOTZDRTQzOTU3M0YzOEYKUldTUDgzT1ZRODZXV20xOVRLazBPcGZPbTZ2d3B2Y0lSUDVTY01STjJlNXUxeW1QQ2F3TFgwMkkK",
       "endpoints": [
-        "https://github.com/ishola11/memora/releases/latest/download/latest.json"
+        "https://github.com/ishola11/memorafy/releases/latest/download/latest.json"
       ],
       "windows": {
         "installMode": "passive"

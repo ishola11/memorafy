@@ -16,7 +16,7 @@ import {
   toggleFavorite,
   togglePin,
 } from "@/lib/api";
-import type { PreviewCard as PreviewCardType, SyncState } from "@memora/shared-types";
+import type { PreviewCard as PreviewCardType, SyncState } from "@memorafy/shared-types";
 import { TIMELINE_LABELS, cn } from "@/lib/utils";
 import { useActionToastStore } from "@/stores/action-toast-store";
 import { useAppStore } from "@/stores/app-store";
@@ -193,7 +193,7 @@ export function TrayPanel() {
       <header className="panel-header px-4 pb-0 pt-3">
         <div className="mb-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <h1 className="text-[13px] font-semibold tracking-tight">Memora</h1>
+            <h1 className="text-[13px] font-semibold tracking-tight">Memorafy</h1>
             <SyncBadge syncState={syncState} />
           </div>
           <button

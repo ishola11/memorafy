@@ -1,6 +1,6 @@
--- Definitive device registration fix for Memora.
+-- Definitive device registration fix for Memorafy.
 -- Run this ENTIRE file once in Supabase → SQL Editor.
--- Requires Memora v0.1.6+ (app calls register_device RPC, not direct table insert).
+-- Requires Memorafy v0.1.6+ (app calls register_device RPC, not direct table insert).
 
 -- ── Resolve user id from JWT (auth.uid() is sometimes NULL on PostgREST upserts) ──
 CREATE OR REPLACE FUNCTION public.current_user_id()

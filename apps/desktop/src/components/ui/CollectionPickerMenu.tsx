@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Check, Loader2 } from "lucide-react";
-import type { Collection } from "@memora/shared-types";
+import type { Collection } from "@memorafy/shared-types";
 import { cn } from "@/lib/utils";
 
 interface CollectionPickerMenuProps {

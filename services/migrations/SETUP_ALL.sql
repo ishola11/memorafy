@@ -1,5 +1,5 @@
 -- ============================================================
--- MEMORA — Run this ENTIRE file once in Supabase SQL Editor
+-- MEMORAFY — Run this ENTIRE file once in Supabase SQL Editor
 -- Dashboard → SQL Editor → New query → Paste → Run
 -- ============================================================
 

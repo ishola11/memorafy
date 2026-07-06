@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="44" height="44" viewBox="0 0 18 18" fill="none">
   <!--
-    Memora menubar template: same stacked-cards mark as the app icon,
+    Memorafy menubar template: same stacked-cards mark as the app icon,
     black-only with alpha so macOS can tint it for light/dark menubars.
   -->
   <rect x="5" y="1" width="8" height="2.4" rx="1.2" fill="#000" opacity="0.45"/>

@@ -1,4 +1,4 @@
--- Clear any local filesystem paths pushed to the cloud before Memora
+-- Clear any local filesystem paths pushed to the cloud before Memorafy
 -- stopped syncing blob_path (leaked local usernames/directory layout and
 -- was never valid on other devices anyway). Safe to re-run.
 -- Run once in Supabase → SQL Editor.

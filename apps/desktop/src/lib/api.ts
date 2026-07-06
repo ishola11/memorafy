@@ -14,7 +14,7 @@ import type {
   AppTab,
   UpdateCollectionInput,
   UpdateSnippetInput,
-} from "@memora/shared-types";
+} from "@memorafy/shared-types";
 
 export async function searchItems(filters: SearchFilters): Promise<PreviewCard[]> {
   return invoke<PreviewCard[]>("search_items", { filters });
@@ -158,7 +158,7 @@ export async function authLogout(): Promise<SyncState> {
 export async function authSignup(
   email: string,
   password: string,
-): Promise<import("@memora/shared-types").SignUpResult> {
+): Promise<import("@memorafy/shared-types").SignUpResult> {
   return invoke("auth_signup", { email, password });
 }
 
@@ -211,11 +211,11 @@ export async function eraseAllData(): Promise<void> {
   return invoke("erase_all_data");
 }
 
-export async function forceSyncNow(): Promise<import("@memora/shared-types").SyncActionResult> {
+export async function forceSyncNow(): Promise<import("@memorafy/shared-types").SyncActionResult> {
   return invoke("force_sync_now");
 }
 
-export async function repairSync(): Promise<import("@memora/shared-types").SyncRepairResult> {
+export async function repairSync(): Promise<import("@memorafy/shared-types").SyncRepairResult> {
   return invoke("repair_sync");
 }
 
@@ -229,36 +229,36 @@ export async function openLogsDir(): Promise<void> {
 
 export async function getDiagnostics(
   includeLogs: boolean,
-): Promise<import("@memora/shared-types").Diagnostics> {
+): Promise<import("@memorafy/shared-types").Diagnostics> {
   return invoke("get_diagnostics", { includeLogs });
 }
 
 export async function submitFeedback(
-  report: import("@memora/shared-types").FeedbackReport,
-): Promise<import("@memora/shared-types").FeedbackOutcome> {
+  report: import("@memorafy/shared-types").FeedbackReport,
+): Promise<import("@memorafy/shared-types").FeedbackOutcome> {
   return invoke("submit_feedback", { report });
 }
 
-export async function getAppSettings(): Promise<import("@memora/shared-types").AppSettings> {
+export async function getAppSettings(): Promise<import("@memorafy/shared-types").AppSettings> {
   return invoke("get_app_settings");
 }
 
 export async function setHistoryRetention(
-  days: import("@memora/shared-types").HistoryRetentionOption,
-): Promise<import("@memora/shared-types").AppSettings> {
+  days: import("@memorafy/shared-types").HistoryRetentionOption,
+): Promise<import("@memorafy/shared-types").AppSettings> {
   return invoke("set_history_retention", { days });
 }
 
 export async function previewClearHistory(): Promise<
-  import("@memora/shared-types").ClearHistoryPreview
+  import("@memorafy/shared-types").ClearHistoryPreview
 > {
   return invoke("preview_clear_history");
 }
 
 export async function clearHistory(
-  scope: import("@memora/shared-types").ClearHistoryScope,
-  mode: import("@memora/shared-types").ClearHistoryMode,
-): Promise<import("@memora/shared-types").ClearHistoryResult> {
+  scope: import("@memorafy/shared-types").ClearHistoryScope,
+  mode: import("@memorafy/shared-types").ClearHistoryMode,
+): Promise<import("@memorafy/shared-types").ClearHistoryResult> {
   return invoke("clear_history", { scope, mode });
 }
 
@@ -280,14 +280,14 @@ export function onThemeChanged(callback: (preference: ThemePreference) => void) 
   });
 }
 
-export function onSyncTransfer(callback: (transfer: import("@memora/shared-types").SyncTransfer) => void) {
-  return listen<import("@memora/shared-types").SyncTransfer>("sync-transfer", (event) => {
+export function onSyncTransfer(callback: (transfer: import("@memorafy/shared-types").SyncTransfer) => void) {
+  return listen<import("@memorafy/shared-types").SyncTransfer>("sync-transfer", (event) => {
     callback(event.payload);
   });
 }
 
-export function onSyncReceived(callback: (transfer: import("@memora/shared-types").SyncTransfer) => void) {
-  return listen<import("@memora/shared-types").SyncTransfer>("sync-received", (event) => {
+export function onSyncReceived(callback: (transfer: import("@memorafy/shared-types").SyncTransfer) => void) {
+  return listen<import("@memorafy/shared-types").SyncTransfer>("sync-received", (event) => {
     callback(event.payload);
   });
 }
@@ -300,9 +300,9 @@ export function onSyncFinished(callback: (message: string) => void) {
 }
 
 export function onAuthCallback(
-  callback: (result: import("@memora/shared-types").AuthCallbackResult) => void,
+  callback: (result: import("@memorafy/shared-types").AuthCallbackResult) => void,
 ) {
-  return listen<import("@memora/shared-types").AuthCallbackResult>("auth-callback", (event) => {
+  return listen<import("@memorafy/shared-types").AuthCallbackResult>("auth-callback", (event) => {
     callback(event.payload);
   });
 }

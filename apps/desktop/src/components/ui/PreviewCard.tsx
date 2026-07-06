@@ -15,7 +15,7 @@ import {
   Type,
   Zap,
 } from "lucide-react";
-import type { Collection, PreviewCard as PreviewCardType } from "@memora/shared-types";
+import type { Collection, PreviewCard as PreviewCardType } from "@memorafy/shared-types";
 import { CollectionPickerMenu } from "@/components/ui/CollectionPickerMenu";
 import { getItemCollections } from "@/lib/api";
 import { cn } from "@/lib/utils";

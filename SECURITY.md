@@ -1,6 +1,6 @@
 # Security Policy
 
-Memora is a clipboard manager, which means it handles some of the most
+Memorafy is a clipboard manager, which means it handles some of the most
 sensitive data on a computer. Security reports are taken seriously and
 handled with priority.
 
@@ -8,7 +8,7 @@ handled with priority.
 
 **Please do not open a public issue for security problems.**
 
-- Preferred: [GitHub private vulnerability reporting](https://github.com/ishola11/memora/security/advisories/new)
+- Preferred: [GitHub private vulnerability reporting](https://github.com/ishola11/memorafy/security/advisories/new)
 - Alternatively: email **work@mjaycloud.com** with a description and
   reproduction steps.
 
@@ -22,7 +22,7 @@ auto-updater keeps installs current.
 
 ## Security model
 
-What Memora does to protect clipboard data:
+What Memorafy does to protect clipboard data:
 
 - **Local-first storage.** History lives in a SQLite database in your OS
   user profile; nothing leaves the device unless you sign in to sync.

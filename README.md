@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="apps/desktop/src-tauri/icons/128x128.png" alt="Memora" width="96" height="96" />
+  <img src="apps/desktop/src-tauri/icons/128x128.png" alt="Memorafy" width="96" height="96" />
 </p>
 
-<h1 align="center">Memora</h1>
+<h1 align="center">Memorafy</h1>
 
 <p align="center">
   <b>Your personal cross-device memory.</b><br/>
@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/ishola11/memora/releases/latest">Download</a> ·
+  <a href="https://github.com/ishola11/memorafy/releases/latest">Download</a> ·
   <a href="#features">Features</a> ·
   <a href="#installation">Install</a> ·
   <a href="#self-hosting-cloud-sync">Self-host sync</a> ·
@@ -40,9 +40,9 @@
 
 <sub>More screenshots, including the macOS menu bar and full dark mode, live in <a href="docs/screenshots">docs/screenshots</a>.</sub>
 
-## What is Memora?
+## What is Memorafy?
 
-Memora quietly remembers everything you copy (text, links, code, images)
+Memorafy quietly remembers everything you copy (text, links, code, images)
 and gives it back to you instantly, anywhere, with one shortcut. It lives in
 your system tray on Windows or the menu bar on macOS. There is no main
 window to manage.
@@ -74,18 +74,18 @@ server never sees what you copied.
 ## Installation
 
 Download the latest installer for your platform from
-[**Releases**](https://github.com/ishola11/memora/releases/latest):
+[**Releases**](https://github.com/ishola11/memorafy/releases/latest):
 
 | Platform | File |
 |---|---|
-| Windows 10/11 | `Memora_x.y.z_x64-setup.exe` (or `.msi`) |
-| macOS (Apple Silicon) | `Memora_x.y.z_aarch64.dmg` |
-| macOS (Intel) | `Memora_x.y.z_x64.dmg` |
+| Windows 10/11 | `Memorafy_x.y.z_x64-setup.exe` (or `.msi`) |
+| macOS (Apple Silicon) | `Memorafy_x.y.z_aarch64.dmg` |
+| macOS (Intel) | `Memorafy_x.y.z_x64.dmg` |
 
 > **macOS note:** builds are not notarized yet. If Gatekeeper complains,
 > right-click the app, choose **Open**, then **Open** again (one time only).
 
-On first launch Memora walks you through a short welcome flow and lives in
+On first launch Memorafy walks you through a short welcome flow and lives in
 the tray or menu bar from then on. Everything works without an account;
 sign-in is only for cross-device sync.
 
@@ -130,7 +130,7 @@ build from source or want your own backend, sync needs a free
    Never use the `service_role` key here.
 
 Release builds embed these values at compile time from the same environment
-variables. Without them, Memora simply runs local-only.
+variables. Without them, Memorafy simply runs local-only.
 
 ## Development
 
@@ -145,8 +145,8 @@ variables. Without them, Memora simply runs local-only.
 ### Run it
 
 ```bash
-git clone https://github.com/ishola11/memora
-cd memora
+git clone https://github.com/ishola11/memorafy
+cd memorafy
 npm install
 npm run tauri dev
 ```
@@ -158,7 +158,7 @@ config from `apps/desktop/.env` at runtime.
 ### Project structure
 
 ```
-memora/
+memorafy/
 ├── apps/desktop/            # The Tauri app
 │   ├── src/                 # React UI (tray panel, quick paste, settings, onboarding)
 │   └── src-tauri/           # Rust core
@@ -191,7 +191,7 @@ schema changes through the dashboard SQL editor.
 Releases are built and signed by GitHub Actions on tag push:
 
 1. One-time setup: generate updater keys (`npm run generate:updater-keys`),
-   commit `apps/desktop/src-tauri/keys/memora.key.pub`, and add repository
+   commit `apps/desktop/src-tauri/keys/memorafy.key.pub`, and add repository
    secrets `TAURI_SIGNING_PRIVATE_KEY`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`.
 2. Bump the version (in `package.json`, `apps/desktop/package.json`,
    `apps/desktop/src-tauri/tauri.conf.json`, `apps/desktop/src-tauri/Cargo.toml`).
@@ -201,15 +201,15 @@ Installed apps pick the release up via **Settings → About → Check for
 updates**.
 
 > **Forks:** the auto-updater endpoint points at
-> `github.com/ishola11/memora` in `tauri.conf.json`. Change it to your own
+> `github.com/ishola11/memorafy` in `tauri.conf.json`. Change it to your own
 > repository, and generate your own signing keys.
 
 ## Logs & diagnostics
 
-Memora writes daily-rotating logs (last 7 days) to:
+Memorafy writes daily-rotating logs (last 7 days) to:
 
-- **Windows:** `%APPDATA%\com.memora.desktop\logs\`
-- **macOS:** `~/Library/Application Support/com.memora.desktop/logs/`
+- **Windows:** `%APPDATA%\com.memorafy.app\logs\`
+- **macOS:** `~/Library/Application Support/com.memorafy.app/logs/`
 
 Open them from **Settings → About → Open logs folder**. To report a bug, use
 **Settings → Feedback**. It drafts a GitHub issue you review before
@@ -218,11 +218,11 @@ anything is sent, with an explicit opt-in diagnostics preview.
 ## FAQ & Troubleshooting
 
 **Nothing happened after I installed it.**
-Memora is a tray/menu-bar app. Look for its icon there, and press
+Memorafy is a tray/menu-bar app. Look for its icon there, and press
 `Ctrl+Shift+V` / `⌘⇧V` for Quick Paste.
 
 **The Quick Paste shortcut doesn't work.**
-Another app may already own that combination. Memora logs a warning and
+Another app may already own that combination. Memorafy logs a warning and
 keeps running; use the tray menu's *Quick Paste* entry meanwhile.
 
 **"Sync encryption is locked" in Settings.**
@@ -237,7 +237,7 @@ Get-NetTCPConnection -LocalPort 1420 -ErrorAction SilentlyContinue |
   ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }
 ```
 
-**How do I completely remove Memora?**
+**How do I completely remove Memorafy?**
 **Settings → General → Erase all local data** wipes the database, images,
 settings, and keychain entries. Then uninstall via your OS as usual. Cloud
 data (if you synced) is deleted from **Settings → History → Clear →
@@ -251,4 +251,4 @@ Bug reports, feature requests, and PRs are welcome. See
 
 ## License
 
-[MIT](LICENSE) © Ishola and Memora contributors
+[MIT](LICENSE) © Ishola and Memorafy contributors

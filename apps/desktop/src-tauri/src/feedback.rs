@@ -10,7 +10,7 @@
 use serde::{Deserialize, Serialize};
 
 /// GitHub repository that receives feedback issues.
-const FEEDBACK_REPO: &str = "ishola11/memora";
+const FEEDBACK_REPO: &str = "ishola11/memorafy";
 /// Browsers reject very long URLs; keep the prefilled issue body well under
 /// common limits. Anything truncated is still in the local logs.
 const MAX_ISSUE_BODY_CHARS: usize = 6000;
@@ -70,7 +70,7 @@ pub fn default_provider() -> Box<dyn FeedbackProvider> {
 }
 
 /// Drafts a prefilled GitHub "new issue" page. The user reviews and submits
-/// in their own browser under their own account — Memora sends nothing.
+/// in their own browser under their own account — Memorafy sends nothing.
 struct GitHubIssueDraft {
     repo: String,
 }
@@ -145,7 +145,7 @@ fn render_markdown_body(report: &FeedbackReport) -> String {
         body.push('\n');
     }
 
-    body.push_str("---\n_Submitted from Memora's in-app feedback form._\n");
+    body.push_str("---\n_Submitted from Memorafy's in-app feedback form._\n");
     body
 }
 

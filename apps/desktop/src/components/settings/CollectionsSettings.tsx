@@ -1,6 +1,6 @@
 import { Loader2, Pencil, Trash2 } from "lucide-react";
 import { useState } from "react";
-import type { Collection } from "@memora/shared-types";
+import type { Collection } from "@memorafy/shared-types";
 import { createCollection, deleteCollection, updateCollection } from "@/lib/api";
 import { cn } from "@/lib/utils";
 

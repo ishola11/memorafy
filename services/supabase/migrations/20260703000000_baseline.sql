@@ -1,4 +1,4 @@
--- Memora cloud schema baseline.
+-- Memorafy cloud schema baseline.
 --
 -- Consolidates the manually-run scripts in services/migrations/ (001–008)
 -- into a single CLI-managed migration for Supabase branching. Written

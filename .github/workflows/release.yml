@@ -37,19 +37,19 @@ jobs:
           set -euo pipefail
           fail() { echo "::error title=Release preflight failed::$1"; exit 1; }
 
-          echo "=== Memora release preflight (${{ matrix.platform }}) ==="
+          echo "=== Memorafy release preflight (${{ matrix.platform }}) ==="
 
           if [[ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ]]; then
-            fail "TAURI_SIGNING_PRIVATE_KEY is empty. Paste the full contents of apps/desktop/src-tauri/keys/memora.key into GitHub repository secrets."
+            fail "TAURI_SIGNING_PRIVATE_KEY is empty. Paste the full contents of apps/desktop/src-tauri/keys/memorafy.key into GitHub repository secrets."
           fi
 
           key_bytes=$(printf '%s' "$TAURI_SIGNING_PRIVATE_KEY" | wc -c | tr -d ' ')
           if [[ "$key_bytes" -lt 100 ]]; then
-            fail "TAURI_SIGNING_PRIVATE_KEY looks truncated (${key_bytes} bytes). Copy the entire memora.key file again."
+            fail "TAURI_SIGNING_PRIVATE_KEY looks truncated (${key_bytes} bytes). Copy the entire memorafy.key file again."
           fi
 
           if ! printf '%s' "$TAURI_SIGNING_PRIVATE_KEY" | base64 -d >/dev/null 2>&1; then
-            fail "TAURI_SIGNING_PRIVATE_KEY is not valid base64. Paste the single-line contents of memora.key exactly."
+            fail "TAURI_SIGNING_PRIVATE_KEY is not valid base64. Paste the single-line contents of memorafy.key exactly."
           fi
 
           [[ -n "${SUPABASE_URL:-}" ]] || fail "SUPABASE_URL is not set."
@@ -89,7 +89,7 @@ jobs:
         with:
           projectPath: apps/desktop
           tagName: v__VERSION__
-          releaseName: Memora v__VERSION__
+          releaseName: Memorafy v__VERSION__
           releaseBody: |
             See the assets to download this version and install.
 

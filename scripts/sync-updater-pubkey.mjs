@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const keysDir = join(root, "apps/desktop/src-tauri/keys");
-const pubPath = join(keysDir, "memora.key.pub");
+const pubPath = join(keysDir, "memorafy.key.pub");
 const confPath = join(root, "apps/desktop/src-tauri/tauri.conf.json");
 
 mkdirSync(keysDir, { recursive: true });

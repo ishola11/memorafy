@@ -1,5 +1,5 @@
 import { Plus } from "lucide-react";
-import type { Collection } from "@memora/shared-types";
+import type { Collection } from "@memorafy/shared-types";
 import { cn } from "@/lib/utils";
 
 interface CollectionChipsProps {

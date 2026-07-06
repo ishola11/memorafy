@@ -85,7 +85,7 @@ export function OnboardingFlow({ onDone }: { onDone: () => void }) {
               <Sparkles className="h-7 w-7 text-accent" />
             </div>
             <div>
-              <h1 className="text-xl font-semibold tracking-tight">Welcome to Memora</h1>
+              <h1 className="text-xl font-semibold tracking-tight">Welcome to Memorafy</h1>
               <p className="mt-1.5 text-sm text-muted">
                 Your personal cross-device memory for everything you copy.
               </p>
@@ -97,7 +97,7 @@ export function OnboardingFlow({ onDone }: { onDone: () => void }) {
               </FeatureRow>
               <FeatureRow icon={Keyboard} title="Quick Paste">
                 Press <span className="font-medium text-zinc-800 dark:text-zinc-200">{QUICK_PASTE_SHORTCUT}</span>{" "}
-                anywhere to search your history and paste. Memora lives in your{" "}
+                anywhere to search your history and paste. Memorafy lives in your{" "}
                 {IS_MAC ? "menu bar" : "system tray"}. It has no main window.
               </FeatureRow>
               <FeatureRow icon={Cloud} title="Cross-device sync (optional)">
@@ -115,7 +115,7 @@ export function OnboardingFlow({ onDone }: { onDone: () => void }) {
               <div>
                 <p className="text-sm font-medium">Launch at login</p>
                 <p className="mt-0.5 text-xs leading-relaxed text-muted">
-                  Start Memora when you sign in to this computer so your clipboard history
+                  Start Memorafy when you sign in to this computer so your clipboard history
                   is always ready in the {IS_MAC ? "menu bar" : "system tray"}.
                 </p>
               </div>
@@ -137,7 +137,7 @@ export function OnboardingFlow({ onDone }: { onDone: () => void }) {
             </div>
             <div>
               <h1 className="text-xl font-semibold tracking-tight">Your data, your rules</h1>
-              <p className="mt-1.5 text-sm text-muted">How Memora handles what you copy.</p>
+              <p className="mt-1.5 text-sm text-muted">How Memorafy handles what you copy.</p>
             </div>
             <div className="space-y-2.5">
               <FeatureRow icon={Lock} title="Local-first">
@@ -181,7 +181,7 @@ export function OnboardingFlow({ onDone }: { onDone: () => void }) {
               </div>
               <h1 className="mt-4 text-xl font-semibold tracking-tight">Sync across devices?</h1>
               <p className="mt-1.5 text-sm text-muted">
-                Create an account or sign in, or skip and use Memora locally. You can enable
+                Create an account or sign in, or skip and use Memorafy locally. You can enable
                 sync later in Settings.
               </p>
             </div>
@@ -208,7 +208,7 @@ export function OnboardingFlow({ onDone }: { onDone: () => void }) {
             ) : (
               <>
                 <p className="rounded-xl border border-border/60 bg-surface-elevated/40 p-4 text-center text-sm text-muted">
-                  Cloud sync isn't set up in this build. Memora works fully offline. You can
+                  Cloud sync isn't set up in this build. Memorafy works fully offline. You can
                   configure sync later; see the README for self-hosting instructions.
                 </p>
                 <button
@@ -216,7 +216,7 @@ export function OnboardingFlow({ onDone }: { onDone: () => void }) {
                   onClick={finish}
                   className="w-full rounded-xl bg-accent py-2.5 text-sm font-medium text-white hover:bg-accent/90"
                 >
-                  Start using Memora
+                  Start using Memorafy
                 </button>
               </>
             )}

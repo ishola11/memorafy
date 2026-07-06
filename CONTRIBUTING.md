@@ -1,6 +1,6 @@
-# Contributing to Memora
+# Contributing to Memorafy
 
-Thanks for helping make Memora better! This guide covers everything you need
+Thanks for helping make Memorafy better! This guide covers everything you need
 to get from `git clone` to a merged PR.
 
 ## Getting set up

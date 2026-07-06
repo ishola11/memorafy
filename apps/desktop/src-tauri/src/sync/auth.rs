@@ -91,7 +91,7 @@ pub fn load_session(db: &Database) -> Result<Option<AuthSession>, String> {
     }
 }
 
-/// One-time upgrade path for installs that saved a session before Memora
+/// One-time upgrade path for installs that saved a session before Memorafy
 /// used the OS keychain (or that fell back to SQLite on a prior run).
 /// Leaves the plaintext row in place if the keychain write fails, so a
 /// transient backend issue can't lose the user's session.

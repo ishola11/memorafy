@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Default capabilities for Memora",
+  "description": "Default capabilities for Memorafy",
   "windows": ["main", "tray", "quick-paste", "settings"],
   "permissions": [
     "core:default",

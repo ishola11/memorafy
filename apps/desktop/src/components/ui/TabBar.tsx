@@ -1,4 +1,4 @@
-import type { AppTab } from "@memora/shared-types";
+import type { AppTab } from "@memorafy/shared-types";
 import { cn } from "@/lib/utils";
 
 const TABS: { id: AppTab; label: string }[] = [

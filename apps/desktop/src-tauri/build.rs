@@ -19,7 +19,7 @@ fn main() {
         dotenvy::from_path(&desktop_env).ok();
     }
 
-    let pubkey_path = manifest_path.join("keys").join("memora.key.pub");
+    let pubkey_path = manifest_path.join("keys").join("memorafy.key.pub");
     let updater_pubkey = fs::read_to_string(&pubkey_path)
         .ok()
         .map(|s| s.trim().to_string())

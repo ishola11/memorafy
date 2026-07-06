@@ -72,7 +72,7 @@ pub async fn run_realtime_loop(engine: Arc<SyncEngine>) {
     }
 }
 
-const REALTIME_TOPIC: &str = "realtime:public:memora";
+const REALTIME_TOPIC: &str = "realtime:public:memorafy";
 /// Renew the socket's JWT this long before it expires. Without renewal,
 /// Supabase silently stops delivering rows once the join token expires
 /// (~1 hour) even though the socket stays open.

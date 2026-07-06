@@ -58,7 +58,7 @@ impl AppState {
 /// duplicate watcher/sync engine that would race on the SQLite database.
 fn single_instance_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
     tauri_plugin_single_instance::init(|app, argv, _cwd| {
-        if let Some(url) = argv.iter().find(|arg| arg.starts_with("memora://")) {
+        if let Some(url) = argv.iter().find(|arg| arg.starts_with("memorafy://")) {
             tracing::info!("auth deep link received via second instance");
             handle_auth_deep_link(app, url);
             return;
@@ -97,7 +97,7 @@ fn setup_auth_deep_links(app: &tauri::App) -> tauri::Result<()> {
     #[cfg(any(windows, target_os = "linux"))]
     {
         if let Err(e) = app.deep_link().register_all() {
-            tracing::warn!("could not register memora:// deep link scheme: {e}");
+            tracing::warn!("could not register memorafy:// deep link scheme: {e}");
         }
     }
 
@@ -126,7 +126,7 @@ fn app_builder() -> tauri::Builder<tauri::Wry> {
         .plugin(tauri_plugin_deep_link::init())
         .plugin(
             tauri_plugin_autostart::Builder::new()
-                .app_name("Memora")
+                .app_name("Memorafy")
                 .macos_launcher(tauri_plugin_autostart::MacosLauncher::LaunchAgent)
                 .build(),
         )
@@ -152,7 +152,7 @@ fn app_builder() -> tauri::Builder<tauri::Wry> {
         .plugin(tauri_plugin_deep_link::init())
         .plugin(
             tauri_plugin_autostart::Builder::new()
-                .app_name("Memora")
+                .app_name("Memorafy")
                 .build(),
         )
         .plugin(
@@ -186,7 +186,7 @@ fn init_updater_plugin(app: &tauri::AppHandle) -> tauri::Result<()> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     logging::init();
-    tracing::info!(version = env!("CARGO_PKG_VERSION"), "Memora starting");
+    tracing::info!(version = env!("CARGO_PKG_VERSION"), "Memorafy starting");
 
     app_builder()
         .setup(|app| {
@@ -205,7 +205,7 @@ pub fn run() {
             let reset_sentinel = app_data.join("reset_pending");
             if reset_sentinel.exists() {
                 tracing::warn!("reset sentinel found — erasing local data");
-                for name in ["memora.db", "memora.db-wal", "memora.db-shm"] {
+                for name in ["memorafy.db", "memorafy.db-wal", "memorafy.db-shm"] {
                     if let Err(e) = std::fs::remove_file(app_data.join(name)) {
                         if e.kind() != std::io::ErrorKind::NotFound {
                             tracing::warn!("erase {name}: {e}");
@@ -223,7 +223,7 @@ pub fn run() {
                 tracing::info!("local data erased — starting fresh");
             }
 
-            let database = Arc::new(db::Database::open(app_data.join("memora.db"))?);
+            let database = Arc::new(db::Database::open(app_data.join("memorafy.db"))?);
             let device_id = database.ensure_device()?;
             let device_name = database.get_device_name(&device_id)?;
             database.set_setting("local_device_id", &device_id)?;
@@ -249,7 +249,7 @@ pub fn run() {
 
             // System tray — macOS uses native NSPopover on left-click (full TrayPanel);
             // Windows keeps the custom sidebar panel on left-click.
-            let show_i = MenuItem::with_id(app, "show", "Open Memora", true, None::<&str>)?;
+            let show_i = MenuItem::with_id(app, "show", "Open Memorafy", true, None::<&str>)?;
             let quick_i =
                 MenuItem::with_id(app, "quick", "Quick Paste", true, None::<&str>)?;
             let sync_i = MenuItem::with_id(app, "sync", "Sync now", true, None::<&str>)?;
@@ -269,7 +269,7 @@ pub fn run() {
 
                 let handle = app.handle().clone();
                 tray.on_menu_event(|app, event| match event.id.as_ref() {
-                    "show" => open_memora(app),
+                    "show" => open_memorafy(app),
                     "quick" => toggle_quick_paste(app, true),
                     "sync" => trigger_tray_sync(app),
                     "settings" => {
@@ -300,7 +300,7 @@ pub fn run() {
                     .menu(&menu)
                     .show_menu_on_left_click(false)
                     .on_menu_event(|app, event| match event.id.as_ref() {
-                        "show" => open_memora(app),
+                        "show" => open_memorafy(app),
                         "quick" => toggle_quick_paste(app, true),
                         "sync" => trigger_tray_sync(app),
                         "settings" => {
@@ -331,7 +331,7 @@ pub fn run() {
             let modifiers = Modifiers::CONTROL | Modifiers::SHIFT;
 
             // Another app can legitimately hold this combination (it's a
-            // common shortcut). Losing it must not crash Memora — Quick
+            // common shortcut). Losing it must not crash Memorafy — Quick
             // Paste stays reachable from the tray menu either way.
             let shortcut = Shortcut::new(Some(modifiers), Code::KeyV);
             if let Err(e) = app.global_shortcut().register(shortcut) {
@@ -495,7 +495,7 @@ fn trigger_tray_sync(app: &tauri::AppHandle) {
 }
 
 /// Primary entry from tray menu — NSPopover history on macOS, sidebar panel on Windows.
-fn open_memora(app: &tauri::AppHandle) {
+fn open_memorafy(app: &tauri::AppHandle) {
     #[cfg(target_os = "macos")]
     macos_popover::show_tray_nspopover(app);
 

@@ -51,7 +51,7 @@ import type {
   HistoryRetentionOption,
   SyncState,
   ThemePreference,
-} from "@memora/shared-types";
+} from "@memorafy/shared-types";
 
 const RETENTION_OPTIONS: { value: HistoryRetentionOption; label: string }[] = [
   { value: 0, label: "Never delete" },
@@ -262,7 +262,7 @@ export function SettingsPanel() {
     <div className="flex h-full min-h-0 overflow-hidden bg-surface text-zinc-900 dark:text-zinc-100">
       <aside className="flex w-52 shrink-0 flex-col border-r border-border/60 bg-surface-elevated/30">
         <div className="border-b border-border/60 px-4 py-5">
-          <h1 className="text-sm font-semibold tracking-tight">Memora</h1>
+          <h1 className="text-sm font-semibold tracking-tight">Memorafy</h1>
           <p className="mt-0.5 text-xs text-muted">Settings</p>
         </div>
         <nav className="flex-1 space-y-0.5 p-2">
@@ -501,7 +501,7 @@ export function SettingsPanel() {
               <label className="flex cursor-pointer items-center justify-between rounded-xl border border-border/60 bg-surface-elevated/40 px-4 py-3">
                 <div>
                   <p className="text-sm font-medium">Launch at login</p>
-                  <p className="text-xs text-muted">Start Memora when you sign in to this computer.</p>
+                  <p className="text-xs text-muted">Start Memorafy when you sign in to this computer.</p>
                 </div>
                 <input
                   type="checkbox"
@@ -527,7 +527,7 @@ export function SettingsPanel() {
               <div>
                 <h2 className="text-base font-semibold">Appearance</h2>
                 <p className="mt-1 text-sm text-muted">
-                  Choose how Memora looks. System follows your OS preference.
+                  Choose how Memorafy looks. System follows your OS preference.
                 </p>
               </div>
               <div className="grid grid-cols-3 gap-2">
@@ -561,7 +561,7 @@ export function SettingsPanel() {
           {section === "about" && (
             <div className="space-y-6">
               <div>
-                <h2 className="text-base font-semibold">About Memora</h2>
+                <h2 className="text-base font-semibold">About Memorafy</h2>
                 <p className="mt-1 text-sm text-muted">
                   Your personal cross-device memory for clipboard history and snippets.
                 </p>
@@ -642,7 +642,7 @@ function EraseAllDataCard() {
         <h3 className="text-sm font-semibold text-red-600 dark:text-red-400">Danger zone</h3>
         <p className="mt-1 text-xs leading-relaxed text-muted">
           Erase all local data (clipboard history, snippets, settings, and sign-in) and
-          restart Memora as a fresh install. Cloud data is not touched (use History → Clear →
+          restart Memorafy as a fresh install. Cloud data is not touched (use History → Clear →
           Everywhere for that). This also prepares the app for a clean uninstall.
         </p>
       </div>
@@ -657,7 +657,7 @@ function EraseAllDataCard() {
       ) : (
         <div className="space-y-2 rounded-xl border border-red-500/40 bg-red-500/10 p-4">
           <p className="text-xs font-medium text-red-700 dark:text-red-300">
-            This permanently deletes everything Memora stores on this device. Are you sure?
+            This permanently deletes everything Memorafy stores on this device. Are you sure?
           </p>
           {error && <p className="text-xs text-red-500">{error}</p>}
           <div className="flex gap-2">

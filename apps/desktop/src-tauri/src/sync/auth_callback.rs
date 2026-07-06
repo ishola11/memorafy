@@ -4,7 +4,7 @@ use super::auth::{claims_from_access_token, AuthSession};
 
 /// Redirect target for Supabase email links (signup confirm, password reset, etc.).
 /// Must be allowlisted in the Supabase dashboard → Authentication → URL Configuration.
-pub const AUTH_REDIRECT_URL: &str = "memora://auth/callback";
+pub const AUTH_REDIRECT_URL: &str = "memorafy://auth/callback";
 
 fn parse_query_string(raw: &str) -> HashMap<String, String> {
     url::form_urlencoded::parse(raw.as_bytes())
@@ -12,11 +12,11 @@ fn parse_query_string(raw: &str) -> HashMap<String, String> {
         .collect()
 }
 
-/// Parse `memora://auth/callback#access_token=…` (or `?error=…`) from a deep link.
+/// Parse `memorafy://auth/callback#access_token=…` (or `?error=…`) from a deep link.
 pub fn parse_auth_callback_url(url: &str) -> Result<(HashMap<String, String>, String), String> {
     let parsed = url::Url::parse(url).map_err(|e| format!("Invalid callback URL: {e}"))?;
-    if parsed.scheme() != "memora" {
-        return Err("Not a Memora auth callback".into());
+    if parsed.scheme() != "memorafy" {
+        return Err("Not a Memorafy auth callback".into());
     }
 
     let params = if let Some(fragment) = parsed.fragment() {
@@ -57,7 +57,7 @@ mod tests {
 
     #[test]
     fn parses_hash_fragment_tokens() {
-        let url = "memora://auth/callback#access_token=abc&refresh_token=def&expires_in=3600&type=signup";
+        let url = "memorafy://auth/callback#access_token=abc&refresh_token=def&expires_in=3600&type=signup";
         let (params, kind) = parse_auth_callback_url(url).unwrap();
         assert_eq!(params.get("access_token").map(String::as_str), Some("abc"));
         assert_eq!(params.get("refresh_token").map(String::as_str), Some("def"));
@@ -66,7 +66,7 @@ mod tests {
 
     #[test]
     fn parses_error_query() {
-        let url = "memora://auth/callback?error=access_denied&error_description=Expired";
+        let url = "memorafy://auth/callback?error=access_denied&error_description=Expired";
         let (params, _) = parse_auth_callback_url(url).unwrap();
         assert_eq!(params.get("error").map(String::as_str), Some("access_denied"));
     }

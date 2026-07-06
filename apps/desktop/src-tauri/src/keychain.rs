@@ -4,22 +4,22 @@
 //! In **debug builds** (local `cargo run` / dev), secrets stay in the local
 //! SQLite database instead of the OS keychain. Unsigned macOS debug binaries
 //! trigger a scary "login keychain password" dialog on every access; dev mode
-//! avoids that. Set `MEMORA_LOCAL_SECRETS=1` to force local storage in release
+//! avoids that. Set `MEMORAFYFY_LOCAL_SECRETS=1` to force local storage in release
 //! builds too (e.g. CI smoke tests).
 //!
-//! Release builds use the keychain with the human-readable service name "Memora"
+//! Release builds use the keychain with the human-readable service name "Memorafy"
 //! so Keychain Access shows a friendly label instead of the bundle identifier.
 
 use keyring::Error as KeyringError;
 
 /// Shown in macOS Keychain Access and Windows Credential Manager.
-const SERVICE: &str = "Memora";
+const SERVICE: &str = "Memorafy";
 const SESSION_ACCOUNT: &str = "auth_session";
 const DEK_ACCOUNT: &str = "sync_dek";
 
 /// When true, callers should store secrets in SQLite instead of the OS keychain.
 pub fn prefer_local_storage() -> bool {
-    std::env::var("MEMORA_LOCAL_SECRETS").is_ok() || cfg!(debug_assertions)
+    std::env::var("MEMORAFYFY_LOCAL_SECRETS").is_ok() || cfg!(debug_assertions)
 }
 
 fn entry(account: &str) -> Result<keyring::Entry, String> {

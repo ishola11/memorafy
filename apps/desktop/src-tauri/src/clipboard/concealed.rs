@@ -1,7 +1,7 @@
 //! Detects clipboard content marked "concealed" by its source app — the
 //! convention password managers (1Password, Bitwarden, KeePass, Dashlane)
 //! and the OS's own clipboard history use to say "don't record this."
-//! Memora must never capture or sync a password or 2FA code just because a
+//! Memorafy must never capture or sync a password or 2FA code just because a
 //! password manager happened to use the system clipboard to deliver it.
 
 #[cfg(windows)]

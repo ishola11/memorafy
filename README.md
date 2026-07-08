@@ -82,8 +82,9 @@ Download the latest installer for your platform from
 | macOS (Apple Silicon) | `Memorafy_x.y.z_aarch64.dmg` |
 | macOS (Intel) | `Memorafy_x.y.z_x64.dmg` |
 
-> **macOS note:** builds are not notarized yet. If Gatekeeper complains,
-> right-click the app, choose **Open**, then **Open** again (one time only).
+**macOS:** Releases from [GitHub](https://github.com/ishola11/memorafy/releases) are signed with a Developer ID certificate and notarized by Apple. Download the DMG, drag Memorafy to Applications, and open it normally — no Terminal commands or right-click workarounds.
+
+**Windows:** Installers are not yet signed with a paid Authenticode certificate. If SmartScreen shows “Windows protected your PC” or “Unknown publisher”, choose **More info** → **Run anyway** (one time per download). The app is built from this open-source repo; auto-updates inside the app remain cryptographically verified.
 
 On first launch Memorafy walks you through a short welcome flow and lives in
 the tray or menu bar from then on. Everything works without an account;
@@ -191,17 +192,27 @@ schema changes through the dashboard SQL editor.
 
 ## Building releases
 
-Releases are built and signed by GitHub Actions on tag push:
+Releases are built by GitHub Actions when you push a version tag (`v*`).
 
-1. One-time setup: generate updater keys (`npm run generate:updater-keys`),
-   commit `apps/desktop/src-tauri/keys/memorafy.key.pub`, and add repository
-   secrets `TAURI_SIGNING_PRIVATE_KEY`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`.
-2. Bump the version (in `package.json`, `apps/desktop/package.json`,
-   `apps/desktop/src-tauri/tauri.conf.json`, `apps/desktop/src-tauri/Cargo.toml`).
-3. `git tag vX.Y.Z && git push origin vX.Y.Z`
+**macOS** builds are Developer ID signed, notarized, and stapled automatically (requires Apple secrets in the repo). **Windows** builds are unsigned for now (no paid cert).
 
-Installed apps pick the release up via **Settings → About → Check for
-updates**.
+### Maintainer setup (one time)
+
+1. **Updater signing:** `npm run generate:updater-keys`, commit `apps/desktop/src-tauri/keys/memorafy.key.pub`, add `TAURI_SIGNING_PRIVATE_KEY` to GitHub Secrets.
+2. **Supabase:** add `SUPABASE_URL` and `SUPABASE_ANON_KEY` (embedded in release builds).
+3. **macOS notarization** (GitHub Secrets):
+   - `APPLE_CERTIFICATE` — base64 of exported Developer ID `.p12`
+   - `APPLE_CERTIFICATE_PASSWORD` — `.p12` export password
+   - `APPLE_SIGNING_IDENTITY` — e.g. `Developer ID Application: Your Name (TEAMID)`
+   - `APPLE_TEAM_ID` — 10-character team ID
+   - `APPLE_API_ISSUER`, `APPLE_API_KEY_ID`, `APPLE_API_KEY_P8` — App Store Connect API key for notarization
+
+### Ship a release
+
+1. Bump version in `package.json`, `apps/desktop/package.json`, `apps/desktop/src-tauri/tauri.conf.json`, and `apps/desktop/src-tauri/Cargo.toml`.
+2. `git tag vX.Y.Z && git push origin vX.Y.Z`
+
+Installed apps check for updates via **Settings → About → Check for updates**.
 
 > **Forks:** the auto-updater endpoint points at
 > `github.com/ishola11/memorafy` in `tauri.conf.json`. Change it to your own
@@ -232,6 +243,15 @@ keeps running; use the tray menu's *Quick Paste* entry meanwhile.
 Your device doesn't hold the encryption key yet (fresh install, app update
 that introduced encryption, or a password reset). Enter your password in the
 card to unlock. Sync pauses rather than uploading anything unencrypted.
+
+**macOS says the app is from an unidentified developer (old builds only).**
+Download the latest release from GitHub. Current builds are notarized. If you
+still see a warning, you may be on an older unsigned build — update from
+**Settings → About → Check for updates** or reinstall from Releases.
+
+**Windows SmartScreen blocked the installer.**
+Choose **More info** → **Run anyway**. Memorafy is not yet signed with a
+paid Windows certificate; this is expected for first install.
 
 **Port 1420 already in use (development).**
 A previous dev server is still running:

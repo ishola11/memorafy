@@ -243,14 +243,16 @@ otp_expiry = 3600
 # admin_email = "admin@email.com"
 # sender_name = "Admin"
 
-# Uncomment to customize email template
-[auth.email.template.confirmation]
-subject = "Confirm your Memorafy account"
-content_path = "./templates/confirmation.html"
-
-[auth.email.template.recovery]
-subject = "Reset your Memorafy password"
-content_path = "./templates/recovery.html"
+# Email templates for local `supabase start` only. For hosted projects, set
+# templates in the Supabase dashboard (see services/supabase/templates/).
+# Uncomment when running the CLI with --workdir services/supabase from repo root.
+# [auth.email.template.confirmation]
+# subject = "Confirm your Memorafy account"
+# content_path = "./templates/confirmation.html"
+#
+# [auth.email.template.recovery]
+# subject = "Reset your Memorafy password"
+# content_path = "./templates/recovery.html"
 
 # Uncomment to customize notification email template
 # [auth.email.notification.password_changed]

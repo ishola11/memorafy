@@ -22,19 +22,19 @@
 ---
 
 <p align="center">
-  <img src="docs/screenshots/quick-paste.png" alt="Quick Paste overlay" width="680" />
+  <img src="docs/screenshots/onboarding.png" alt="Onboarding" width="680" />
 </p>
 
 <table>
   <tr>
-    <td align="center"><img src="docs/screenshots/tray-panel.png" alt="Tray panel" width="260" /></td>
-    <td align="center"><img src="docs/screenshots/onboarding.png" alt="Onboarding" width="300" /></td>
-    <td align="center"><img src="docs/screenshots/dark-settings-account.png" alt="Settings in dark mode" width="300" /></td>
+    <td align="center"><img src="docs/screenshots/menu-bar.png" alt="Menu Bar Panel" width="260" /></td>
+    <td align="center"><img src="docs/screenshots/quick-paste.png" alt="Quick Paste Overlay" width="300" /></td>
+    <td align="center"><img src="docs/screenshots/settings-account.png" alt="Settings" width="300" /></td>
   </tr>
   <tr>
-    <td align="center"><sub>Tray panel</sub></td>
-    <td align="center"><sub>First-launch onboarding</sub></td>
-    <td align="center"><sub>Settings (dark mode)</sub></td>
+    <td align="center"><sub>Menu bar</sub></td>
+    <td align="center"><sub>Quick paste overlay</sub></td>
+    <td align="center"><sub>Settings</sub></td>
   </tr>
 </table>
 
@@ -111,13 +111,16 @@ build from source or want your own backend, sync needs a free
 
 1. Create a project at [supabase.com](https://supabase.com).
 2. Apply the schema, either way works:
-   - **CLI (recommended):**
+   - **CLI (recommended)** — run from the **repo root**:
      ```bash
-     cd services
      npx supabase login
-     npx supabase link --project-ref <your-project-ref>
-     npx supabase db push
+     npx supabase link --project-ref <your-project-ref> --workdir services
+     npx supabase db push --workdir services
      ```
+     Use `--workdir services` (not `services/supabase`). The CLI expects
+     `services/supabase/config.toml` and `services/supabase/migrations/`.
+     `supabase status` needs Docker (local stack only); ignore that if you
+     only push schema to the hosted project.
    - **Or** connect the repo via the Supabase **GitHub integration**
      (Project Settings → Integrations → GitHub) with working directory
      `services/supabase`; migrations then apply on every push.

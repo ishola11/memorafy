@@ -13,17 +13,19 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # One universal macOS build (Apple Silicon + Intel) → single notarization.
+          # Two separate arch jobs doubled notarization wait time and caused flaky
+          # network failures while polling appstoreconnect.apple.com for hours.
           - platform: macos-latest
-            args: --target aarch64-apple-darwin
-            rust_target: aarch64-apple-darwin
-          - platform: macos-latest
-            args: --target x86_64-apple-darwin
-            rust_target: x86_64-apple-darwin
+            args: --target universal-apple-darwin
+            rust_targets: aarch64-apple-darwin x86_64-apple-darwin
           - platform: windows-latest
             args: ""
-            rust_target: ""
+            rust_targets: ""
 
     runs-on: ${{ matrix.platform }}
+    # macOS: build (~15 min) + notarization poll (often 15–45 min, sometimes longer)
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
 
@@ -88,9 +90,9 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
-      - name: Add Rust target
-        if: matrix.rust_target != ''
-        run: rustup target add ${{ matrix.rust_target }}
+      - name: Add Rust targets
+        if: matrix.rust_targets != ''
+        run: rustup target add ${{ matrix.rust_targets }}
 
       - name: Install npm dependencies
         run: npm ci

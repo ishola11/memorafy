@@ -79,8 +79,7 @@ Download the latest installer for your platform from
 | Platform | File |
 |---|---|
 | Windows 10/11 | `Memorafy_x.y.z_x64-setup.exe` (or `.msi`) |
-| macOS (Apple Silicon) | `Memorafy_x.y.z_aarch64.dmg` |
-| macOS (Intel) | `Memorafy_x.y.z_x64.dmg` |
+| macOS (Apple Silicon + Intel) | `Memorafy_x.y.z_universal.dmg` |
 
 **macOS:** Releases from [GitHub](https://github.com/ishola11/memorafy/releases) are signed with a Developer ID certificate and notarized by Apple. Download the DMG, drag Memorafy to Applications, and open it normally — no Terminal commands or right-click workarounds.
 

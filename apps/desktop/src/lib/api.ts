@@ -312,3 +312,13 @@ export function onAuthCallbackError(callback: (message: string) => void) {
     callback(event.payload);
   });
 }
+
+export interface UpdateAvailablePayload {
+  version: string;
+}
+
+export function onUpdateAvailable(callback: (payload: UpdateAvailablePayload) => void) {
+  return listen<UpdateAvailablePayload>("update-available", (event) => {
+    callback(event.payload);
+  });
+}

@@ -1,6 +1,6 @@
 [package]
 name = "memorafy-desktop"
-version = "1.0.0"
+version = "1.0.1"
 description = "Memorafy - Your personal cross-device memory"
 authors = ["Memorafy"]
 edition = "2021"

@@ -28,6 +28,7 @@ use tauri::{
 #[cfg(not(target_os = "macos"))]
 use tauri::tray::TrayIconBuilder;
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
+use tauri_plugin_autostart::ManagerExt;
 
 /// Ignore blur immediately after opening Quick Paste (shortcut / panel focus handoff).
 static QUICK_PASTE_OPENED_AT: Mutex<Option<Instant>> = Mutex::new(None);
@@ -127,7 +128,11 @@ fn app_builder() -> tauri::Builder<tauri::Wry> {
         .plugin(
             tauri_plugin_autostart::Builder::new()
                 .app_name("Memorafy")
-                .macos_launcher(tauri_plugin_autostart::MacosLauncher::LaunchAgent)
+                // LaunchAgent shows the code-signing developer name ("Mujeeb Ishola")
+                // in System Settings → Login Items. AppleScript registers the .app
+                // bundle so macOS displays "Memorafy".
+                .args(["--hidden"])
+                .macos_launcher(tauri_plugin_autostart::MacosLauncher::AppleScript)
                 .build(),
         )
         .plugin(
@@ -183,6 +188,73 @@ fn init_updater_plugin(app: &tauri::AppHandle) -> tauri::Result<()> {
     )
 }
 
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UpdateAvailablePayload {
+    version: String,
+}
+
+/// Poll GitHub for a newer release after startup and periodically notify
+/// open windows so the user can install from the in-app toast.
+fn start_background_update_checker(app: tauri::AppHandle) {
+    if embedded::UPDATER_PUBKEY.is_none() {
+        return;
+    }
+
+    tauri::async_runtime::spawn(async move {
+        use tauri_plugin_updater::UpdaterExt;
+
+        const INITIAL_DELAY: Duration = Duration::from_secs(30);
+        const CHECK_INTERVAL: Duration = Duration::from_secs(6 * 60 * 60);
+
+        tokio::time::sleep(INITIAL_DELAY).await;
+
+        let mut last_notified: Option<String> = None;
+
+        loop {
+            match app.updater() {
+                Ok(updater) => match updater.check().await {
+                    Ok(Some(update)) => {
+                        let version = update.version.clone();
+                        if last_notified.as_deref() != Some(version.as_str()) {
+                            last_notified = Some(version.clone());
+                            tracing::info!(version = %version, "update available");
+                            let _ = app.emit(
+                                "update-available",
+                                UpdateAvailablePayload { version },
+                            );
+                        }
+                    }
+                    Ok(None) => tracing::debug!("no update available"),
+                    Err(e) => tracing::debug!("update check failed: {e}"),
+                },
+                Err(e) => tracing::debug!("updater not available: {e}"),
+            }
+
+            tokio::time::sleep(CHECK_INTERVAL).await;
+        }
+    });
+}
+
+#[cfg(target_os = "macos")]
+fn migrate_macos_login_item(app: &tauri::AppHandle) {
+    let Some(home) = dirs::home_dir() else {
+        return;
+    };
+    let legacy = home.join("Library/LaunchAgents/Memorafy.plist");
+    if !legacy.exists() {
+        return;
+    }
+    if let Err(e) = std::fs::remove_file(&legacy) {
+        tracing::warn!("could not remove legacy LaunchAgent plist: {e}");
+        return;
+    }
+    tracing::info!("removed legacy LaunchAgent login item — re-registering as Memorafy");
+    if let Err(e) = app.autolaunch().enable() {
+        tracing::warn!("could not re-register login item: {e}");
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     logging::init();
@@ -195,6 +267,9 @@ pub fn run() {
 
             init_updater_plugin(app.handle())?;
             setup_auth_deep_links(app)?;
+
+            #[cfg(target_os = "macos")]
+            migrate_macos_login_item(app.handle());
 
             let app_data = app.path().app_data_dir().expect("app data dir");
             std::fs::create_dir_all(&app_data).ok();
@@ -348,6 +423,8 @@ pub fn run() {
             // Start sync engine
             sync_engine.clone().run_retention_if_due();
             sync_engine.start();
+
+            start_background_update_checker(app.handle().clone());
 
             // First launch: the app is tray-only, so a brand-new install
             // would otherwise appear to do nothing. Show the welcome flow

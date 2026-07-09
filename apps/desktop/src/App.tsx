@@ -5,6 +5,7 @@ import { SettingsPanel } from "@/components/settings/SettingsPanel";
 import { TrayPanel, TrayShell } from "@/components/tray/TrayPanel";
 import { ActionToast } from "@/components/ui/ActionToast";
 import { SyncToast } from "@/components/ui/SyncToast";
+import { UpdateToast } from "@/components/ui/UpdateToast";
 import {
   getOnboardingCompleted,
   onCollectionsUpdated,
@@ -113,6 +114,7 @@ export default function App() {
     return (
       <TrayShell className="h-full overflow-hidden">
         <SettingsWindow />
+        <UpdateToast />
       </TrayShell>
     );
   }
@@ -123,6 +125,7 @@ export default function App() {
         <TrayPanel />
         <ActionToast />
         <SyncToast />
+        <UpdateToast />
       </TrayShell>
     );
   }
@@ -133,6 +136,7 @@ export default function App() {
         <QuickPasteLauncher />
         <ActionToast />
         <SyncToast />
+        <UpdateToast />
       </TrayShell>
     );
   }
@@ -143,6 +147,7 @@ export default function App() {
       <TrayPanel />
       <ActionToast />
       <SyncToast />
+      <UpdateToast />
     </TrayShell>
   );
 }

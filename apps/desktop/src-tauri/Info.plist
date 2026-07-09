@@ -4,5 +4,9 @@
 <dict>
 	<key>LSUIElement</key>
 	<true/>
+	<key>CFBundleName</key>
+	<string>Memorafy</string>
+	<key>CFBundleDisplayName</key>
+	<string>Memorafy</string>
 </dict>
 </plist>
